@@ -184,7 +184,7 @@ class Call {
       // Send session.connect handshake
       sendWsEvent('session.connect', {'call_token': callToken});
 
-      return _connectCompleter!.future;
+      return await _connectCompleter!.future;
     } catch (e) {
       _authTimeout?.cancel();
       if (_connectCompleter != null && !_connectCompleter!.isCompleted) {
@@ -705,7 +705,7 @@ class Call {
     Timer? timeoutTimer;
     Timer? fallbackTimer;
 
-    void finish() {
+    Future<void> finish() async {
       if (isFinished) return;
       isFinished = true;
       pc.onIceCandidate = null;
@@ -713,7 +713,7 @@ class Call {
       timeoutTimer?.cancel();
       fallbackTimer?.cancel();
 
-      final localDesc = pc.localDescription;
+      final localDesc = await pc.getLocalDescription();
       if (localDesc != null && !completer.isCompleted) {
         completer.complete(localDesc);
       } else if (!completer.isCompleted) {
@@ -726,14 +726,15 @@ class Call {
     // Check if gathering already complete
     if (pc.iceGatheringState ==
         RTCIceGatheringState.RTCIceGatheringStateComplete) {
-      final localDesc = pc.localDescription;
+      final localDesc = await pc.getLocalDescription();
       if (localDesc != null) return localDesc;
     }
 
     // Hard safety timeout of 6 seconds
-    timeoutTimer = Timer(const Duration(seconds: 6), () {
-      if (pc.localDescription != null) {
-        finish();
+    timeoutTimer = Timer(const Duration(seconds: 6), () async {
+      final desc = await pc.getLocalDescription();
+      if (desc != null) {
+        await finish();
       } else if (!completer.isCompleted) {
         completer.completeError(
           TimeoutException('ICE gathering timed out after 6s'),
@@ -742,13 +743,13 @@ class Call {
     });
 
     // Fallback: 3s if srflx or relay candidate already found
-    fallbackTimer = Timer(const Duration(seconds: 3), () {
-      final desc = pc.localDescription;
+    fallbackTimer = Timer(const Duration(seconds: 3), () async {
+      final desc = await pc.getLocalDescription();
       if (desc != null &&
           desc.sdp != null &&
           (desc.sdp!.contains('typ srflx') ||
               desc.sdp!.contains('typ relay'))) {
-        finish();
+        await finish();
       }
     });
 

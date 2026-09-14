@@ -3,7 +3,6 @@
 /// Provides audio/video calls with native WebSocket event-based signaling,
 /// Full ICE gathering, hold/unhold, mute, DTMF, transfer, and VoIP push
 /// notification support (FCM & APNs).
-library firetell_flutter_sdk;
 
 export 'src/firetell_client.dart';
 export 'src/call.dart';
