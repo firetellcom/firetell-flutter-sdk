@@ -6,7 +6,7 @@ class JwtPayload {
     this.exp,
     this.iat,
     this.aud,
-    this.workspaceId,
+    this.callFlowId,
   });
 
   factory JwtPayload.fromJson(Map<String, dynamic> json) {
@@ -16,7 +16,7 @@ class JwtPayload {
       exp: (json['exp'] as num?)?.toInt(),
       iat: (json['iat'] as num?)?.toInt(),
       aud: json['aud'] as String?,
-      workspaceId: json['workspace_id'] as String?,
+      callFlowId: json['call_flow_id'] as String? ?? '',
     );
   }
 
@@ -35,8 +35,8 @@ class JwtPayload {
   /// Audience claim.
   final String? aud;
 
-  /// Workspace identifier.
-  final String? workspaceId;
+  /// Call flow ID.
+  final String? callFlowId;
 
   /// Whether this token has expired.
   bool get isExpired {
@@ -45,5 +45,5 @@ class JwtPayload {
   }
 
   @override
-  String toString() => 'JwtPayload(sub: $sub, domain: $domain)';
+  String toString() => 'JwtPayload(sub: $sub, domain: $domain, aud: $aud)';
 }

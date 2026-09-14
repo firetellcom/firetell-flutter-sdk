@@ -76,7 +76,7 @@ import 'package:firetell_flutter_sdk/firetell_flutter_sdk.dart';
 
 // 1. Create client
 final client = FiretellClient(
-  jwt: 'your_agent_jwt_token',
+  jwt: 'your_agent_or_client_jwt_token',
   domain: 'your_workspace.firetell.app',
 );
 
