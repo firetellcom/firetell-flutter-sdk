@@ -2,7 +2,7 @@
 
 ## Overview
 
-The Firetell Flutter SDK authenticates using a workspace domain and an agent/client JWT token. The JWT is issued by the your backend and contains the user's identity, workspace ID, and permissions.
+The Firetell Flutter SDK authenticates using a workspace domain and an agent/client JWT token. The JWT is issued by the your backend and contains the user's identity, workspace domain, and permissions.
 
 ## Initializing the Client
 
@@ -25,7 +25,7 @@ final client = FiretellClient(
 ### What happens during initialization
 
 1. The JWT is decoded to extract `sub` (user ID), `domain`, and `exp` (expiration)
-2. A `GET` request is made to `{domain}/api/v1/workspace/metadata` to fetch:
+2. A `GET` request is made to `{domain}/api/v1` to fetch:
    - `ws_servers` — list of WebSocket server URLs
    - `ice_servers` — STUN/TURN servers for WebRTC (cached locally for push calls)
 3. The SSE event stream is connected for real-time workspace events
@@ -123,6 +123,10 @@ client.onError.listen((error) {
   // (e.g., same agent logged in on too many devices)
 });
 ```
+
+## JWT token generation from your backend
+
+- [Generate JWT token](https://developers.firetell.com/docs/getting-started/authentication#jwt-authentication-client-side)
 
 ## Next Steps
 
