@@ -29,6 +29,8 @@ Future<void> _firebaseBackgroundMessageHandler(RemoteMessage message) async {
   }
 }
 
+final GlobalKey<NavigatorState> rootNavigatorKey = GlobalKey<NavigatorState>();
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp();
@@ -36,10 +38,10 @@ void main() async {
   // Register background FCM handler BEFORE runApp
   FirebaseMessaging.onBackgroundMessage(_firebaseBackgroundMessageHandler);
 
-  // Global CallKit event listener — captures answer/decline from lock screen
-  // even before any screen mounts. Uses ws_url + call_token from push payload
-  // directly, no FiretellClient needed.
-  ColdStartCallHandler.initialize();
+  // Global CallKit event listener + lifecycle observer — captures answer/decline
+  // from lock screen even before any screen mounts. Automatically navigates to
+  // CallScreen / VideoCallScreen when the device is unlocked!
+  ColdStartCallHandler.initialize(navKey: rootNavigatorKey);
 
   runApp(const FiretellExampleApp());
 }
@@ -50,6 +52,7 @@ class FiretellExampleApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
+      navigatorKey: rootNavigatorKey,
       title: 'Firetell SDK Example',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(

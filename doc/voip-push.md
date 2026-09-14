@@ -257,6 +257,48 @@ Future<void> _handleDecline(CallEvent event) async {
 }
 ```
 
+## Handling Device Unlock During Active Call
+
+A common mobile VoIP workflow is:
+1. App is killed, phone is locked.
+2. VoIP push arrives → Native CallKit / lock screen UI appears.
+3. User swipes **"Answer"** on the lock screen.
+4. OS wakes the app in the background → WebRTC media connects → user speaks for several seconds while the phone remains locked.
+5. User **unlocks the device**.
+
+When the phone is unlocked, the Flutter app transitions from background to foreground (`AppLifecycleState.resumed`). To ensure the user immediately sees the in-call screen instead of a blank or login screen, use `WidgetsBindingObserver` with a global `navigatorKey`:
+
+```dart
+// 1. In main.dart — provide a root navigator key:
+final GlobalKey<NavigatorState> rootNavigatorKey = GlobalKey<NavigatorState>();
+
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await Firebase.initializeApp();
+
+  // Initialize cold start handler with navigatorKey
+  ColdStartCallHandler.initialize(navKey: rootNavigatorKey);
+
+  runApp(MaterialApp(
+    navigatorKey: rootNavigatorKey,
+    home: const HomeScreen(),
+  ));
+}
+
+// 2. In ColdStartCallHandler — observe app lifecycle:
+class ColdStartLifecycleObserver with WidgetsBindingObserver {
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      // User unlocked device — auto-push in-call screen
+      ColdStartCallHandler.checkAndNavigateToActiveCall();
+    }
+  }
+}
+```
+
+This ensures uninterrupted audio during lock-screen conversation, and instantaneous navigation to the in-call UI (audio or video) the moment the user unlocks their device.
+
 ## Push Payload Format
 
 ### call.ring

@@ -72,6 +72,9 @@ class Call {
   /// Whether the speakerphone is turned on (vs earpiece).
   bool isSpeakerOn = false;
 
+  /// Whether the local camera is turned off / muted.
+  bool isCameraOff = false;
+
   /// Remote SDP description received from the server.
   RTCSessionDescription? remoteDescription;
 
@@ -87,6 +90,7 @@ class Call {
   final _remoteStreamController =
       StreamController<MediaStream?>.broadcast();
   final _muteController = StreamController<bool>.broadcast();
+  final _cameraController = StreamController<bool>.broadcast();
   final _speakerController = StreamController<bool>.broadcast();
   final _mediaStateController = StreamController<String>.broadcast();
 
@@ -102,6 +106,9 @@ class Call {
 
   /// Stream of mute state changes.
   Stream<bool> get onMuteChange => _muteController.stream;
+
+  /// Stream of camera state changes (true = camera off, false = camera on).
+  Stream<bool> get onCameraChange => _cameraController.stream;
 
   /// Stream of speakerphone state changes.
   Stream<bool> get onSpeakerChange => _speakerController.stream;
@@ -253,6 +260,9 @@ class Call {
           }
           if (data['is_video'] != null) {
             isVideo = data['is_video'] == true;
+          } else if (sdpInit?.sdp != null &&
+              RegExp(r'm=video [1-9]').hasMatch(sdpInit!.sdp!)) {
+            isVideo = true;
           }
           if (data['is_transfer'] != null) {
             isTransfer = data['is_transfer'] == true;
@@ -263,6 +273,11 @@ class Call {
         }
         _state = CallState.ringing;
         _emitState(CallState.ringing, data: data);
+
+      case 'call.camera':
+        final enabled = data?['enabled'] != false;
+        // Broadcast camera state event for remote camera toggle
+        _emitState(_state, data: {'event': 'camera', 'enabled': enabled});
 
       case 'call.answered':
         final sdpInit = _extractSdpInit(data);
@@ -349,6 +364,13 @@ class Call {
     }
 
     try {
+      // Auto-detect video from remote offer if isVideo was false
+      if (!isVideo &&
+          remoteDescription?.sdp != null &&
+          RegExp(r'm=video [1-9]').hasMatch(remoteDescription!.sdp!)) {
+        isVideo = true;
+      }
+
       await _setupWebrtcMedia(audio: true, video: isVideo);
       await _setRemoteDescription(remoteDescription!);
       final answer = await _peerConnection!.createAnswer({});
@@ -488,6 +510,54 @@ class Call {
     await setSpeakerphoneOn(!isSpeakerOn);
   }
 
+  // ─── Video & Camera ────────────────────────────────────────────────
+
+  /// Mute local video track (turns off camera transmission).
+  Future<void> muteVideo() async {
+    final stream = _localStream;
+    if (stream == null) return;
+    for (final track in stream.getVideoTracks()) {
+      track.enabled = false;
+    }
+    isCameraOff = true;
+    sendWsEvent('call.camera', {'muted': true});
+    if (!_cameraController.isClosed) {
+      _cameraController.add(true);
+    }
+  }
+
+  /// Unmute local video track (resumes camera transmission).
+  Future<void> unmuteVideo() async {
+    final stream = _localStream;
+    if (stream == null) return;
+    for (final track in stream.getVideoTracks()) {
+      track.enabled = true;
+    }
+    isCameraOff = false;
+    sendWsEvent('call.camera', {'muted': false});
+    if (!_cameraController.isClosed) {
+      _cameraController.add(false);
+    }
+  }
+
+  /// Toggle camera transmission on/off.
+  Future<void> toggleCamera() async {
+    if (isCameraOff) {
+      await unmuteVideo();
+    } else {
+      await muteVideo();
+    }
+  }
+
+  /// Switch between front and back camera.
+  Future<void> switchCamera() async {
+    final stream = _localStream;
+    if (stream == null) return;
+    final videoTracks = stream.getVideoTracks();
+    if (videoTracks.isEmpty) return;
+    await Helper.switchCamera(videoTracks[0]);
+  }
+
   // ─── Hold / Unhold ─────────────────────────────────────────────────
 
   /// Put the call on hold via SDP renegotiation.
@@ -599,6 +669,7 @@ class Call {
     _localStreamController.close();
     _remoteStreamController.close();
     _muteController.close();
+    _cameraController.close();
     _speakerController.close();
     _mediaStateController.close();
   }
@@ -799,6 +870,7 @@ class Call {
   /// Cleanup the peer connection and stop all media tracks.
   void _cleanupPeerConnection() {
     isMuted = false;
+    isCameraOff = false;
     if (isSpeakerOn) {
       try {
         Helper.setSpeakerphoneOn(false);

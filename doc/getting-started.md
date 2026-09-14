@@ -34,6 +34,7 @@ Add to `android/app/src/main/AndroidManifest.xml`:
 ```xml
 <uses-permission android:name="android.permission.INTERNET" />
 <uses-permission android:name="android.permission.RECORD_AUDIO" />
+<uses-permission android:name="android.permission.CAMERA" />
 <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
 
 <!-- Bluetooth headset audio routing (Required for Android 12+) -->
@@ -54,6 +55,8 @@ Add to `ios/Runner/Info.plist`:
 ```xml
 <key>NSMicrophoneUsageDescription</key>
 <string>Firetell needs microphone access for VoIP calls</string>
+<key>NSCameraUsageDescription</key>
+<string>Firetell needs camera access for video calls</string>
 
 <key>UIBackgroundModes</key>
 <array>

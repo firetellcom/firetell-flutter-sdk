@@ -14,3 +14,4 @@ export 'src/utils/device_id.dart';
 export 'src/utils/ice_server_cache.dart';
 export 'src/utils/jwt_decoder.dart';
 export 'src/utils/sse_stream_client.dart' show SseConnectionState;
+export 'package:flutter_webrtc/flutter_webrtc.dart';
