@@ -1,6 +1,7 @@
 import 'package:firetell_flutter_sdk/firetell_flutter_sdk.dart';
 import 'package:flutter/material.dart';
 
+import '../services/cold_start_call_handler.dart';
 import 'home_screen.dart';
 
 /// Login screen — enter workspace domain and JWT to connect.
@@ -16,6 +17,14 @@ class _LoginScreenState extends State<LoginScreen> {
   final _jwtController = TextEditingController();
   bool _loading = false;
   String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      ColdStartCallHandler.checkAndNavigateToActiveCall();
+    });
+  }
 
   @override
   void dispose() {
