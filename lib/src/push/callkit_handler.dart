@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:developer' as developer;
 
-import 'package:flutter_callkit_incoming/entities/call_event.dart';
+import 'package:flutter_callkit_incoming/entities/call_event.dart' as callkit;
 import 'package:flutter_callkit_incoming/entities/call_kit_params.dart';
 import 'package:flutter_callkit_incoming/entities/ios_params.dart';
 import 'package:flutter_callkit_incoming/entities/android_params.dart';
@@ -29,7 +29,7 @@ typedef OnCallError = void Function(String callId, Object error);
 ///
 /// ```
 /// VoIP Push → showIncomingCall() → User swipes "Answer" on lock screen
-///   → CallKit EVENT_ACTION_CALL_ACCEPT
+///   → CallKit EventActionCallAccept
 ///   → handlePushIncomingCall() → connectSignaling() → accept() → media flows
 /// ```
 ///
@@ -74,7 +74,7 @@ class CallKitHandler {
   /// Active Call instances being set up (prevents duplicate answer handling).
   final Map<String, Call> _connectingCalls = {};
 
-  StreamSubscription<CallEvent?>? _callKitSubscription;
+  StreamSubscription<callkit.CallEvent?>? _callKitSubscription;
 
   /// Show the native incoming call UI (CallKit on iOS, notification on Android).
   ///
@@ -110,9 +110,12 @@ class CallKitHandler {
         isShowFullLockedScreen: true,
         isShowCallID: true,
       ),
-      notification: const NotificationParams(
+      missedCallNotification: const NotificationParams(
         showNotification: true,
-        isShowMissedCallNotification: true,
+        isShowCallback: true,
+      ),
+      callingNotification: const NotificationParams(
+        showNotification: true,
       ),
     );
 
@@ -143,17 +146,17 @@ class CallKitHandler {
 
   void _listenCallKitEvents() {
     _callKitSubscription =
-        FlutterCallkitIncoming.onEvent.listen((CallEvent? event) {
+        FlutterCallkitIncoming.onEvent.listen((callkit.CallEvent? event) {
       if (event == null) return;
 
-      switch (event.event) {
-        case Event.actionCallAccept:
+      switch (event) {
+        case callkit.CallEventActionCallAccept():
           _handleAccept(event);
-        case Event.actionCallDecline:
+        case callkit.CallEventActionCallDecline():
           _handleDecline(event);
-        case Event.actionCallEnded:
+        case callkit.CallEventActionCallEnded():
           _handleEnded(event);
-        case Event.actionCallTimeout:
+        case callkit.CallEventActionCallTimeout():
           _handleTimeout(event);
         default:
           break;
@@ -165,11 +168,17 @@ class CallKitHandler {
   ///
   /// This is the critical path: must quickly connect WS + setup WebRTC
   /// before the call times out on the server side.
-  Future<void> _handleAccept(CallEvent event) async {
+  Future<void> _handleAccept(callkit.CallEvent event) async {
     final callId = _extractCallId(event);
     if (callId == null) return;
 
-    final params = _pendingCalls.remove(callId);
+    var params = _pendingCalls.remove(callId);
+    if (params == null && event is callkit.CallEventActionCallAccept) {
+      final extra = event.callKitParams.extra;
+      if (extra != null) {
+        params = CallRingParams.fromMap(extra);
+      }
+    }
     if (params == null) {
       developer.log(
         'CallKitHandler: No pending call found for $callId',
@@ -208,11 +217,17 @@ class CallKitHandler {
   /// User tapped "Decline" on CallKit UI.
   ///
   /// Uses fast HTTP reject (no WS needed) — ~50ms response time.
-  Future<void> _handleDecline(CallEvent event) async {
+  Future<void> _handleDecline(callkit.CallEvent event) async {
     final callId = _extractCallId(event);
     if (callId == null) return;
 
-    final params = _pendingCalls.remove(callId);
+    var params = _pendingCalls.remove(callId);
+    if (params == null && event is callkit.CallEventActionCallDecline) {
+      final extra = event.callKitParams.extra;
+      if (extra != null) {
+        params = CallRingParams.fromMap(extra);
+      }
+    }
     if (params == null) return;
 
     // Fast HTTP reject using call_token — no WebSocket needed
@@ -227,7 +242,7 @@ class CallKitHandler {
   }
 
   /// Call ended from the native UI (e.g. user pulled down notification).
-  Future<void> _handleEnded(CallEvent event) async {
+  Future<void> _handleEnded(callkit.CallEvent event) async {
     final callId = _extractCallId(event);
     if (callId == null) return;
 
@@ -247,7 +262,7 @@ class CallKitHandler {
   }
 
   /// Call timed out (ring expired).
-  Future<void> _handleTimeout(CallEvent event) async {
+  Future<void> _handleTimeout(callkit.CallEvent event) async {
     final callId = _extractCallId(event);
     if (callId == null) return;
 
@@ -260,8 +275,26 @@ class CallKitHandler {
     );
   }
 
-  String? _extractCallId(CallEvent event) {
-    final body = event.body as Map<String, dynamic>?;
-    return body?['id']?.toString() ?? body?['callId']?.toString();
+  String? _extractCallId(callkit.CallEvent event) {
+    if (event is callkit.CallEventActionCallAccept) {
+      return event.callKitParams.id;
+    } else if (event is callkit.CallEventActionCallDecline) {
+      return event.callKitParams.id;
+    } else if (event is callkit.CallEventActionCallEnded) {
+      return event.callKitParams.id;
+    } else if (event is callkit.CallEventActionCallTimeout) {
+      return event.id;
+    } else if (event is callkit.CallEventActionCallConnected) {
+      return event.id;
+    } else if (event is callkit.CallEventActionCallCallback) {
+      return event.id;
+    } else if (event is callkit.CallEventActionCallIncoming) {
+      return event.callKitParams.id;
+    } else if (event is callkit.CallEventActionCallStart) {
+      return event.callKitParams.id;
+    } else if (event is callkit.CallEventActionCallCustom) {
+      return event.body['id']?.toString() ?? event.body['callId']?.toString();
+    }
+    return null;
   }
 }

@@ -54,7 +54,7 @@ class PushNotificationService {
       // Handled natively by flutter_callkit_incoming via PKPushRegistry
       try {
         final token = await FlutterCallkitIncoming.getDevicePushTokenVoIP();
-        if (token.isNotEmpty) {
+        if (token != null && token.isNotEmpty) {
           voipToken = token;
           debugPrint('iOS APNs VoIP Token: $voipToken');
         }
@@ -194,9 +194,12 @@ class PushNotificationService {
         isShowCallID: false,
         isCustomNotification: false,
       ),
-      notification: const NotificationParams(
+      missedCallNotification: const NotificationParams(
         showNotification: true,
-        isShowMissedCallNotification: true,
+        isShowCallback: true,
+      ),
+      callingNotification: const NotificationParams(
+        showNotification: true,
       ),
     );
 
