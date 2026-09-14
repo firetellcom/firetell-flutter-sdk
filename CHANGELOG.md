@@ -5,6 +5,27 @@ All notable changes to the `firetell_flutter_sdk` package will be documented in 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.2] - 2026-09-14
+
+### Changed
+
+- **Upgraded Dependencies**:
+  - Updated to modern packages: `flutter_callkit_incoming: ^3.1.5`, `flutter_webrtc: ^1.6.2`, `web_socket_channel: ^3.0.3`, `http: ^1.6.0`, `uuid: ^4.6.0`, `shared_preferences: ^2.5.5`, `device_info_plus: ^13.2.0`.
+- **flutter_callkit_incoming 3.x Compatibility**:
+  - Adapted `CallKitHandler` and example handlers to support `flutter_callkit_incoming 3.x` sealed class event hierarchy (`CallEventActionCallAccept`, `CallEventActionCallDecline`, etc.).
+  - Configured `missedCallNotification:` and `callingNotification:` in `CallKitParams`.
+  - Resolved `CallEvent` naming conflict with SDK's internal enum via explicit namespace aliasing.
+
+### Fixed
+
+- **WebRTC Local Description Handling**:
+  - Fixed `localDescription` getter error in `flutter_webrtc` by utilizing asynchronous `await pc.getLocalDescription()`.
+- **Linter & Code Health**:
+  - Fixed `unawaited_return_in_try_block` lint in WebSocket connect handshake.
+  - Replaced unhandled `catchError` with clean `unawaited` try/catch block in `FiretellClient`.
+  - Added unnamed `library;` directive for Dart 3 library doc comment compliance.
+  - Renamed documentation directory to `doc/` and main markdown file to `README.md` per pub.dev package layout guidelines.
+
 ## [1.0.1] - 2026-09-14
 
 ### Fixed
