@@ -16,6 +16,7 @@ class CallScreen extends StatefulWidget {
 class _CallScreenState extends State<CallScreen> {
   CallState _state = CallState.initiated;
   bool _muted = false;
+  bool _speakerOn = false;
   bool _onHold = false;
   bool _showDtmf = false;
   String _duration = '00:00';
@@ -25,12 +26,14 @@ class _CallScreenState extends State<CallScreen> {
   late final StreamSubscription<
       ({CallState state, String? reason, Map<String, dynamic>? data})> _stateSub;
   late final StreamSubscription<bool> _muteSub;
+  late final StreamSubscription<bool> _speakerSub;
 
   @override
   void initState() {
     super.initState();
     _state = widget.call.callState;
     _muted = widget.call.isMuted;
+    _speakerOn = widget.call.isSpeakerOn;
     _onHold = widget.call.isHold;
 
     _stateSub = widget.call.onStateChange.listen((event) {
@@ -63,12 +66,18 @@ class _CallScreenState extends State<CallScreen> {
       if (!mounted) return;
       setState(() => _muted = muted);
     });
+
+    _speakerSub = widget.call.onSpeakerChange.listen((speaker) {
+      if (!mounted) return;
+      setState(() => _speakerOn = speaker);
+    });
   }
 
   @override
   void dispose() {
     _stateSub.cancel();
     _muteSub.cancel();
+    _speakerSub.cancel();
     _durationTimer?.cancel();
     super.dispose();
   }
@@ -91,6 +100,10 @@ class _CallScreenState extends State<CallScreen> {
 
   Future<void> _toggleMute() async {
     await widget.call.toggleMute();
+  }
+
+  Future<void> _toggleSpeaker() async {
+    await widget.call.toggleSpeaker();
   }
 
   Future<void> _toggleHold() async {
@@ -197,7 +210,7 @@ class _CallScreenState extends State<CallScreen> {
             // Call controls
             if (!isEnded)
               Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 24),
+                padding: const EdgeInsets.symmetric(horizontal: 16),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                   children: [
@@ -207,6 +220,14 @@ class _CallScreenState extends State<CallScreen> {
                       label: _muted ? 'Unmute' : 'Mute',
                       active: _muted,
                       onPressed: isActive ? _toggleMute : null,
+                    ),
+
+                    // Speaker
+                    _ControlButton(
+                      icon: _speakerOn ? Icons.volume_up : Icons.volume_down,
+                      label: _speakerOn ? 'Speaker' : 'Earpiece',
+                      active: _speakerOn,
+                      onPressed: isActive ? _toggleSpeaker : null,
                     ),
 
                     // Hold

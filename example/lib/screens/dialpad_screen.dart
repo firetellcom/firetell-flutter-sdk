@@ -16,11 +16,42 @@ class DialpadScreen extends StatefulWidget {
 class _DialpadScreenState extends State<DialpadScreen> {
   final _numberController = TextEditingController();
   bool _calling = false;
+  bool _loadingNumbers = false;
+  List<PhoneNumber> _phoneNumbers = [];
+  String? _selectedCallerId;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadPhoneNumbers();
+  }
 
   @override
   void dispose() {
     _numberController.dispose();
     super.dispose();
+  }
+
+  Future<void> _loadPhoneNumbers() async {
+    setState(() => _loadingNumbers = true);
+    try {
+      final numbers = await widget.client.getPhoneNumbers();
+      if (!mounted) return;
+      setState(() {
+        _phoneNumbers = numbers;
+        // Auto-select first outbound-enabled number if available
+        final defaultOutbound = numbers
+            .where((n) => n.enableOutbound)
+            .firstOrNull ?? numbers.firstOrNull;
+        if (defaultOutbound != null) {
+          _selectedCallerId = defaultOutbound.number;
+        }
+      });
+    } catch (e) {
+      // Best effort — agent can still make extension calls
+    } finally {
+      if (mounted) setState(() => _loadingNumbers = false);
+    }
   }
 
   void _appendDigit(String digit) {
@@ -41,7 +72,10 @@ class _DialpadScreenState extends State<DialpadScreen> {
     setState(() => _calling = true);
 
     try {
-      final call = await widget.client.makeOutboundCall(to: to);
+      final call = await widget.client.makeOutboundCall(
+        to: to,
+        from: _selectedCallerId,
+      );
 
       if (!mounted) return;
 
@@ -70,30 +104,83 @@ class _DialpadScreenState extends State<DialpadScreen> {
 
     return Scaffold(
       appBar: AppBar(title: const Text('Dial Pad')),
-      body: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          children: [
-            // Number display
-            TextField(
-              controller: _numberController,
-              decoration: InputDecoration(
-                hintText: 'Enter number or extension',
-                border: const OutlineInputBorder(),
-                suffixIcon: IconButton(
-                  onPressed: _backspace,
-                  icon: const Icon(Icons.backspace_outlined),
+      body: SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            children: [
+              // Caller ID selector (DID)
+              if (_loadingNumbers)
+                const Padding(
+                  padding: EdgeInsets.only(bottom: 12),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      SizedBox(
+                        height: 16,
+                        width: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                      SizedBox(width: 8),
+                      Text(
+                        'Loading caller IDs...',
+                        style: TextStyle(fontSize: 12),
+                      ),
+                    ],
+                  ),
+                )
+              else if (_phoneNumbers.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 16),
+                  child: DropdownButtonFormField<String?>(
+                    initialValue: _selectedCallerId,
+                    isExpanded: true,
+                    decoration: const InputDecoration(
+                      labelText: 'Caller ID (From)',
+                      prefixIcon: Icon(Icons.phone_forwarded),
+                      contentPadding:
+                          EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      border: OutlineInputBorder(),
+                    ),
+                    items: [
+                      const DropdownMenuItem<String?>(
+                        value: null,
+                        child: Text('Default (Extension)'),
+                      ),
+                      ..._phoneNumbers.map(
+                        (p) => DropdownMenuItem<String?>(
+                          value: p.number,
+                          child: Text(
+                            p.displayLabel,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ),
+                    ],
+                    onChanged: (val) => setState(() => _selectedCallerId = val),
+                  ),
                 ),
+
+              // Number display
+              TextField(
+                controller: _numberController,
+                decoration: InputDecoration(
+                  hintText: 'Enter number or extension',
+                  border: const OutlineInputBorder(),
+                  suffixIcon: IconButton(
+                    onPressed: _backspace,
+                    icon: const Icon(Icons.backspace_outlined),
+                  ),
+                ),
+                style: const TextStyle(
+                  fontSize: 24,
+                  fontFamily: 'monospace',
+                  letterSpacing: 2,
+                ),
+                textAlign: TextAlign.center,
+                readOnly: true,
               ),
-              style: const TextStyle(
-                fontSize: 24,
-                fontFamily: 'monospace',
-                letterSpacing: 2,
-              ),
-              textAlign: TextAlign.center,
-              readOnly: true,
-            ),
-            const SizedBox(height: 24),
+              const SizedBox(height: 24),
 
             // Digit grid
             ...digits.map(
@@ -146,6 +233,7 @@ class _DialpadScreenState extends State<DialpadScreen> {
           ],
         ),
       ),
-    );
-  }
+    ),
+  );
+}
 }

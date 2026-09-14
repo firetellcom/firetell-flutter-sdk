@@ -9,12 +9,14 @@ import 'constants/api_endpoints.dart';
 import 'constants/ice_servers.dart';
 import 'enums/enums.dart';
 import 'models/models.dart';
+import 'push/push_token_service.dart';
+import 'utils/device_id.dart';
 import 'utils/jwt_decoder.dart';
 import 'utils/ice_server_cache.dart';
 import 'utils/sse_stream_client.dart';
 
 /// SDK version.
-const sdkVersion = '0.1.0';
+const sdkVersion = '1.0.3';
 
 /// Main Firetell client for managing VoIP calls.
 ///
@@ -404,6 +406,49 @@ class FiretellClient {
     );
   }
 
+  /// Fetch phone numbers (DIDs) accessible by the authenticated agent/team.
+  ///
+  /// Calls `GET /api/v1/call-center/phone-numbers` using the agent's JWT.
+  ///
+  /// Use these numbers as outbound caller ID (`from`) when calling external
+  /// mobile or landline numbers (PSTN).
+  Future<List<PhoneNumber>> getPhoneNumbers({
+    int page = 1,
+    int limit = 100,
+  }) async {
+    final res = await getPhoneNumbersResponse(page: page, limit: limit);
+    return res.data;
+  }
+
+  /// Fetch paginated phone numbers response including metadata.
+  Future<PhoneNumbersResponse> getPhoneNumbersResponse({
+    int page = 1,
+    int limit = 100,
+  }) async {
+    final uri = Uri.parse(
+      '$_baseUrl${ApiEndpoints.phoneNumbers}?page=$page&limit=$limit',
+    );
+    final response = await http.get(
+      uri,
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $_jwt',
+      },
+    );
+
+    if (response.statusCode != 200) {
+      final errData = _tryParseJson(response.body);
+      throw Exception(
+        errData?['message'] ??
+            'HTTP ${response.statusCode}: Failed to fetch phone numbers',
+      );
+    }
+
+    return PhoneNumbersResponse.fromJson(
+      jsonDecode(response.body) as Map<String, dynamic>,
+    );
+  }
+
   // ─── Call Session Management ───────────────────────────────────────
 
   /// Create a new [Call] instance and connect its dedicated per-call
@@ -536,12 +581,36 @@ class FiretellClient {
 
   // ─── Lifecycle ─────────────────────────────────────────────────────
 
-  /// Logout — hangup all active calls, close SSE stream, cleanup session.
-  void logout() {
+  /// Logout the agent — unregisters the device push token from the backend
+  /// via `POST /api/v1/me/logout` (preventing incoming push notifications
+  /// after logout), hangs up all active calls, closes the SSE stream,
+  /// and cleans up the local session.
+  ///
+  /// If [deviceId] is omitted, it automatically uses the persistent device ID
+  /// from [DeviceIdHelper.getOrCreate()].
+  Future<void> logout({String? deviceId}) async {
+    // 1. Unregister device push token from backend so device no longer rings
+    try {
+      final resolvedDeviceId = deviceId ?? await DeviceIdHelper.getOrCreate();
+      await PushTokenService.logout(
+        baseUrl: _baseUrl,
+        jwt: _jwt,
+        deviceId: resolvedDeviceId,
+      );
+    } catch (e) {
+      developer.log(
+        'FiretellClient.logout: failed to remove push token from backend: $e',
+        name: 'FiretellSDK',
+      );
+    }
+
+    // 2. Hangup all active calls
     for (final call in activeCalls.values) {
       call.destroy();
     }
     activeCalls.clear();
+
+    // 3. Clean up local session and SSE stream
     _cleanupSession();
   }
 

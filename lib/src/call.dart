@@ -69,6 +69,9 @@ class Call {
   /// Whether the local microphone is muted.
   bool isMuted = false;
 
+  /// Whether the speakerphone is turned on (vs earpiece).
+  bool isSpeakerOn = false;
+
   /// Remote SDP description received from the server.
   RTCSessionDescription? remoteDescription;
 
@@ -84,6 +87,7 @@ class Call {
   final _remoteStreamController =
       StreamController<MediaStream?>.broadcast();
   final _muteController = StreamController<bool>.broadcast();
+  final _speakerController = StreamController<bool>.broadcast();
   final _mediaStateController = StreamController<String>.broadcast();
 
   /// Stream of call state changes.
@@ -98,6 +102,9 @@ class Call {
 
   /// Stream of mute state changes.
   Stream<bool> get onMuteChange => _muteController.stream;
+
+  /// Stream of speakerphone state changes.
+  Stream<bool> get onSpeakerChange => _speakerController.stream;
 
   /// Stream of ICE connection state changes.
   Stream<String> get onMediaState => _mediaStateController.stream;
@@ -462,6 +469,25 @@ class Call {
     }
   }
 
+  // ─── Speakerphone ──────────────────────────────────────────────────
+
+  /// Turn speakerphone on or off.
+  ///
+  /// When [enable] is true, audio routes to device loudspeaker.
+  /// When [enable] is false, audio routes to earpiece.
+  Future<void> setSpeakerphoneOn(bool enable) async {
+    await Helper.setSpeakerphoneOn(enable);
+    isSpeakerOn = enable;
+    if (!_speakerController.isClosed) {
+      _speakerController.add(enable);
+    }
+  }
+
+  /// Toggle speakerphone state.
+  Future<void> toggleSpeaker() async {
+    await setSpeakerphoneOn(!isSpeakerOn);
+  }
+
   // ─── Hold / Unhold ─────────────────────────────────────────────────
 
   /// Put the call on hold via SDP renegotiation.
@@ -573,6 +599,7 @@ class Call {
     _localStreamController.close();
     _remoteStreamController.close();
     _muteController.close();
+    _speakerController.close();
     _mediaStateController.close();
   }
 
@@ -772,6 +799,12 @@ class Call {
   /// Cleanup the peer connection and stop all media tracks.
   void _cleanupPeerConnection() {
     isMuted = false;
+    if (isSpeakerOn) {
+      try {
+        Helper.setSpeakerphoneOn(false);
+      } catch (_) {}
+      isSpeakerOn = false;
+    }
     _currentRemoteSetupRole = null;
 
     if (_peerConnection != null) {

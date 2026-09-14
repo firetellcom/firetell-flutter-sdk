@@ -30,6 +30,32 @@ call.onMuteChange.listen((bool muted) {
 
 > **Note:** Muting sends a `call.mute` event to the server so the remote party's UI can show a mute indicator.
 
+## Speakerphone (Loudspeaker / Earpiece)
+
+Toggle audio output between the device speakerphone (loudspeaker) and earpiece.
+
+```dart
+// Turn speakerphone ON
+await call.setSpeakerphoneOn(true);
+
+// Turn speakerphone OFF (route to earpiece)
+await call.setSpeakerphoneOn(false);
+
+// Toggle speakerphone state
+await call.toggleSpeaker();
+
+// Check current state
+print('Speaker active: ${call.isSpeakerOn}');
+```
+
+### Listen for speaker changes
+
+```dart
+call.onSpeakerChange.listen((bool speakerOn) {
+  print(speakerOn ? 'Switched to speakerphone' : 'Switched to earpiece');
+});
+```
+
 ## Hold / Unhold
 
 Holding a call uses SDP renegotiation — the transceiver direction changes to `sendonly` (hold) or `sendrecv` (unhold), and a new SDP with fully-gathered ICE candidates is sent to the server.

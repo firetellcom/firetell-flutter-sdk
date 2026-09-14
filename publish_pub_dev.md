@@ -8,12 +8,12 @@ Follow these steps whenever you release a new version of **`firetell_flutter_sdk
 
 1. Open `pubspec.yaml` and bump the `version` field (following [Semantic Versioning](https://semver.org/)):
    ```yaml
-   version: 1.0.2
+   version: 1.0.3
    ```
 
 2. Open `CHANGELOG.md` and add release notes for the new version at the top:
    ```markdown
-   ## [1.0.2] - YYYY-MM-DD
+   ## [1.0.3] - YYYY-MM-DD
 
    ### Added / Fixed / Changed
    - Describe notable changes and improvements...
@@ -41,7 +41,7 @@ flutter pub publish --dry-run
 
 ```bash
 git add .
-git commit -m "chore: release version 1.0.2"
+git commit -m "chore: release version 1.0.3"
 git push origin main
 ```
 
@@ -52,8 +52,8 @@ git push origin main
 Create a release tag matching the pattern `v*.*.*` and push it:
 
 ```bash
-git tag v1.0.2
-git push origin v1.0.2
+git tag v1.0.3
+git push origin v1.0.3
 ```
 
 🚀 **GitHub Actions Automation:**

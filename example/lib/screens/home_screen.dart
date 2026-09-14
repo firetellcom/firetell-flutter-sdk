@@ -299,18 +299,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _logout() async {
-    try {
-      final deviceId = await DeviceIdHelper.getOrCreate();
-      await PushTokenService.logout(
-        baseUrl: widget.client.baseUrl,
-        jwt: widget.client.jwt,
-        deviceId: deviceId,
-      );
-    } catch (_) {
-      // Best-effort logout
-    }
-
-    widget.client.destroy();
+    await widget.client.logout();
     if (!mounted) return;
     Navigator.of(context).pushReplacement(
       MaterialPageRoute(builder: (_) => const _LoggedOutScreen()),
