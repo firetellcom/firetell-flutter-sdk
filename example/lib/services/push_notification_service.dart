@@ -46,36 +46,48 @@ class PushNotificationService {
 
     // 2. Get tokens
     final deviceId = await DeviceIdHelper.getOrCreate();
+    final isIOS = !kIsWeb && Platform.isIOS;
 
-    if (!kIsWeb && Platform.isIOS) {
-      // iOS: Get APNs token for VoIP push
-      // Note: flutter_callkit_incoming handles PushKit VoIP token internally
-      // We register the FCM token for call.canceled / call.ended notifications
-      final apnsToken = await _messaging.getAPNSToken();
-      debugPrint('APNs token: $apnsToken');
+    String? voipToken;
+    if (isIOS) {
+      // iOS: Apple PushKit VoIP token (raw 64-char hex string)
+      // Handled natively by flutter_callkit_incoming via PKPushRegistry
+      try {
+        final token = await FlutterCallkitIncoming.getDevicePushTokenVoIP();
+        if (token != null && token.isNotEmpty) {
+          voipToken = token;
+          debugPrint('iOS APNs VoIP Token: $voipToken');
+        }
+      } catch (e) {
+        debugPrint('Failed to get iOS VoIP token from CallKit: $e');
+      }
+    } else {
+      // Android: High-priority FCM data message is used as VoIP push
+      voipToken = await _messaging.getToken();
+      debugPrint('Android FCM VoIP Token: $voipToken');
     }
 
-    // FCM token (works on both Android and iOS)
-    final fcmToken = await _messaging.getToken();
-    if (fcmToken != null) {
-      debugPrint('FCM token: $fcmToken');
-
-      // Register VoIP push token
+    // Register VoIP push token (triggers call.ring pushes)
+    if (voipToken != null && voipToken.isNotEmpty) {
       await PushTokenService.registerVoipPushToken(
         baseUrl: client.baseUrl,
         jwt: client.jwt,
-        pushToken: fcmToken,
+        pushToken: voipToken,
         deviceId: deviceId,
-        platform: Platform.isIOS ? 'ios' : 'android',
+        platform: isIOS ? 'ios' : 'android',
       );
+    }
 
-      // Register notification token (for call.canceled / call.ended)
+    // Register standard notification token (for call.canceled / call.ended)
+    final fcmToken = await _messaging.getToken();
+    if (fcmToken != null && fcmToken.isNotEmpty) {
+      debugPrint('FCM Notification Token: $fcmToken');
       await PushTokenService.registerNotificationPushToken(
         baseUrl: client.baseUrl,
         jwt: client.jwt,
         notificationToken: fcmToken,
         deviceId: deviceId,
-        platform: Platform.isIOS ? 'ios' : 'android',
+        platform: isIOS ? 'ios' : 'android',
       );
     }
 
@@ -83,13 +95,25 @@ class PushNotificationService {
     _messaging.onTokenRefresh.listen((newToken) async {
       debugPrint('FCM token refreshed: $newToken');
       try {
-        await PushTokenService.registerVoipPushToken(
+        // Update notification token
+        await PushTokenService.registerNotificationPushToken(
           baseUrl: client.baseUrl,
           jwt: client.jwt,
-          pushToken: newToken,
+          notificationToken: newToken,
           deviceId: deviceId,
-          platform: Platform.isIOS ? 'ios' : 'android',
+          platform: isIOS ? 'ios' : 'android',
         );
+
+        // On Android, the FCM token is also the VoIP token
+        if (!isIOS) {
+          await PushTokenService.registerVoipPushToken(
+            baseUrl: client.baseUrl,
+            jwt: client.jwt,
+            pushToken: newToken,
+            deviceId: deviceId,
+            platform: 'android',
+          );
+        }
       } catch (e) {
         debugPrint('Failed to re-register push token: $e');
       }
@@ -170,9 +194,12 @@ class PushNotificationService {
         isShowCallID: false,
         isCustomNotification: false,
       ),
-      notification: const NotificationParams(
+      missedCallNotification: const NotificationParams(
         showNotification: true,
-        isShowMissedCallNotification: true,
+        isShowCallback: true,
+      ),
+      callingNotification: const NotificationParams(
+        showNotification: true,
       ),
     );
 

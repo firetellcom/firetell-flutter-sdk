@@ -280,25 +280,29 @@ class FiretellClient {
               (_wsServers.isNotEmpty
                   ? _wsServers[0]
                   : 'wss://${_baseUrl.replaceFirst(RegExp(r'^https?://'), '')}/ws');
-          createCallSession(
-            callToken: ringParams.callToken,
-            wsUrl: wsUrl,
-            callId: ringParams.callId,
-            options: CallOptions(
-              to: ringParams.calleeNumber,
-              from: ringParams.callerNumber,
-              fromName: ringParams.callerName,
-              fromAvatar: ringParams.callerAvatar,
-              isVideo: ringParams.isVideo,
-              isTransfer: ringParams.isTransfer,
-              transferReason: ringParams.transferReason,
-            ),
-          ).catchError((Object e) {
-            developer.log(
-              'FiretellClient: Error connecting call WS from SSE ring: $e',
-              name: 'FiretellSDK',
-            );
-          });
+          unawaited(() async {
+            try {
+              await createCallSession(
+                callToken: ringParams.callToken,
+                wsUrl: wsUrl,
+                callId: ringParams.callId,
+                options: CallOptions(
+                  to: ringParams.calleeNumber,
+                  from: ringParams.callerNumber,
+                  fromName: ringParams.callerName,
+                  fromAvatar: ringParams.callerAvatar,
+                  isVideo: ringParams.isVideo,
+                  isTransfer: ringParams.isTransfer,
+                  transferReason: ringParams.transferReason,
+                ),
+              );
+            } catch (e) {
+              developer.log(
+                'FiretellClient: Error connecting call WS from SSE ring: $e',
+                name: 'FiretellSDK',
+              );
+            }
+          }());
         }
 
       case 'call.answered':

@@ -2,10 +2,8 @@ import 'dart:async';
 
 import 'package:firetell_flutter_sdk/firetell_flutter_sdk.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter_callkit_incoming/entities/call_event.dart';
+import 'package:flutter_callkit_incoming/entities/call_event.dart' as callkit;
 import 'package:flutter_callkit_incoming/flutter_callkit_incoming.dart';
-
-import 'package:firetell_flutter_sdk/src/utils/ice_server_cache.dart';
 
 /// Handles the **cold-start answer** flow when the app is completely killed
 /// and a VoIP push wakes it.
@@ -27,14 +25,14 @@ import 'package:firetell_flutter_sdk/src/utils/ice_server_cache.dart';
 ///   → User swipes "Answer"
 ///   → iOS/Android cold-starts the app
 ///   → main() → ColdStartCallHandler.initialize()
-///   → EVENT_ACTION_CALL_ACCEPT fires
+///   → CallEventActionCallAccept fires
 ///   → Call(iceServers) → connectSignaling(ws_url, call_token)
 ///   → call.accept() → audio flows ✅
 /// ```
 class ColdStartCallHandler {
   ColdStartCallHandler._();
 
-  static StreamSubscription<CallEvent?>? _subscription;
+  static StreamSubscription<callkit.CallEvent?>? _subscription;
 
   /// The call that was connected during cold start.
   /// HomeScreen can pick this up when it mounts.
@@ -58,13 +56,13 @@ class ColdStartCallHandler {
     _subscription = null;
   }
 
-  static Future<void> _handleCallKitEvent(CallEvent? event) async {
+  static Future<void> _handleCallKitEvent(callkit.CallEvent? event) async {
     if (event == null) return;
 
-    switch (event.event) {
-      case Event.actionCallAccept:
+    switch (event) {
+      case callkit.CallEventActionCallAccept():
         await _handleAccept(event);
-      case Event.actionCallDecline:
+      case callkit.CallEventActionCallDecline():
         await _handleDecline(event);
       default:
         break;
@@ -75,13 +73,10 @@ class ColdStartCallHandler {
   ///
   /// Uses `ws_url` + `call_token` directly from the push payload —
   /// no FiretellClient or stored credentials needed.
-  static Future<void> _handleAccept(CallEvent event) async {
-    final body = event.body as Map<String, dynamic>?;
-    if (body == null) return;
-
-    final callId = body['id']?.toString();
-    final extra = body['extra'] as Map<String, dynamic>?;
-    if (callId == null || extra == null) return;
+  static Future<void> _handleAccept(callkit.CallEventActionCallAccept event) async {
+    final callId = event.callKitParams.id;
+    final extra = event.callKitParams.extra;
+    if (extra == null) return;
 
     debugPrint('ColdStartCallHandler: Answering $callId');
 
@@ -130,11 +125,10 @@ class ColdStartCallHandler {
   }
 
   /// User declined from CallKit UI — fast HTTP reject using call_token.
-  static Future<void> _handleDecline(CallEvent event) async {
-    final body = event.body as Map<String, dynamic>?;
-    final callId = body?['id']?.toString();
-    final extra = body?['extra'] as Map<String, dynamic>?;
-    if (callId == null || extra == null) return;
+  static Future<void> _handleDecline(callkit.CallEventActionCallDecline event) async {
+    final callId = event.callKitParams.id;
+    final extra = event.callKitParams.extra;
+    if (extra == null) return;
 
     debugPrint('ColdStartCallHandler: Declining $callId');
 

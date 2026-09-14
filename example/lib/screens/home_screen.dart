@@ -2,7 +2,7 @@ import 'dart:async';
 
 import 'package:firetell_flutter_sdk/firetell_flutter_sdk.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_callkit_incoming/entities/call_event.dart';
+import 'package:flutter_callkit_incoming/entities/call_event.dart' as callkit;
 import 'package:flutter_callkit_incoming/flutter_callkit_incoming.dart';
 
 
@@ -30,7 +30,7 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   late final CallKitHandler _callKitHandler;
   late final StreamSubscription<SseConnectionState> _connectionSub;
-  StreamSubscription<CallEvent?>? _callKitEventSub;
+  StreamSubscription<callkit.CallEvent?>? _callKitEventSub;
   SseConnectionState _connectionState = SseConnectionState.connecting;
   final List<String> _eventLog = [];
 
@@ -123,17 +123,17 @@ class _HomeScreenState extends State<HomeScreen> {
 
   // ─── CallKit Event Handler (Push-originated calls) ─────────────────
 
-  Future<void> _handleCallKitEvent(CallEvent? event) async {
+  Future<void> _handleCallKitEvent(callkit.CallEvent? event) async {
     if (event == null) return;
 
-    switch (event.event) {
-      case Event.actionCallAccept:
+    switch (event) {
+      case callkit.CallEventActionCallAccept():
         await _handlePushCallAccept(event);
-      case Event.actionCallDecline:
+      case callkit.CallEventActionCallDecline():
         await _handlePushCallDecline(event);
-      case Event.actionCallEnded:
+      case callkit.CallEventActionCallEnded():
         _handlePushCallEnded(event);
-      case Event.actionCallTimeout:
+      case callkit.CallEventActionCallTimeout():
         _handlePushCallTimeout(event);
       default:
         break;
@@ -145,15 +145,12 @@ class _HomeScreenState extends State<HomeScreen> {
   /// The `extra` map in CallKitParams contains the original push payload
   /// (CallRingParams.toMap()), so we have call_token and ws_url to
   /// connect the per-call WebSocket.
-  Future<void> _handlePushCallAccept(CallEvent event) async {
-    final body = event.body as Map<String, dynamic>?;
-    if (body == null) return;
+  Future<void> _handlePushCallAccept(callkit.CallEventActionCallAccept event) async {
+    final callId = event.callKitParams.id;
+    final extra = event.callKitParams.extra;
 
-    final callId = body['id']?.toString();
-    final extra = body['extra'] as Map<String, dynamic>?;
-
-    if (callId == null || extra == null) {
-      _log('Accept: missing callId or extra data');
+    if (extra == null) {
+      _log('Accept: missing extra data');
       return;
     }
 
@@ -183,12 +180,11 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   /// User declined from CallKit UI — fast HTTP reject, no WS needed.
-  Future<void> _handlePushCallDecline(CallEvent event) async {
-    final body = event.body as Map<String, dynamic>?;
-    final callId = body?['id']?.toString();
-    final extra = body?['extra'] as Map<String, dynamic>?;
+  Future<void> _handlePushCallDecline(callkit.CallEventActionCallDecline event) async {
+    final callId = event.callKitParams.id;
+    final extra = event.callKitParams.extra;
 
-    if (callId == null || extra == null) return;
+    if (extra == null) return;
 
     _log('Declining push call: $callId');
 
@@ -203,10 +199,8 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  void _handlePushCallEnded(CallEvent event) {
-    final body = event.body as Map<String, dynamic>?;
-    final callId = body?['id']?.toString();
-    if (callId == null) return;
+  void _handlePushCallEnded(callkit.CallEventActionCallEnded event) {
+    final callId = event.callKitParams.id;
 
     final call = widget.client.activeCalls[callId];
     if (call != null) {
@@ -214,19 +208,16 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  void _handlePushCallTimeout(CallEvent event) {
-    final body = event.body as Map<String, dynamic>?;
-    final callId = body?['id']?.toString();
-    if (callId != null) {
-      _log('Push call timed out: $callId');
-    }
+  void _handlePushCallTimeout(callkit.CallEventActionCallTimeout event) {
+    final callId = event.id;
+    _log('Push call timed out: $callId');
   }
 
   /// Check for pending CallKit actions when app launches
   /// (e.g., user answered from terminated state, app is now in foreground).
   Future<void> _checkPendingCallKitActions() async {
     final activeCalls = await FlutterCallkitIncoming.activeCalls();
-    if (activeCalls is List && activeCalls.isNotEmpty) {
+    if (activeCalls.isNotEmpty) {
       _log('Found ${activeCalls.length} pending CallKit call(s)');
       // These will be handled by the onEvent listener above
     }
