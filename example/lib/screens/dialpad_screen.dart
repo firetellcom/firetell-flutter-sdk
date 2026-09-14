@@ -133,7 +133,7 @@ class _DialpadScreenState extends State<DialpadScreen> {
                 Padding(
                   padding: const EdgeInsets.only(bottom: 16),
                   child: DropdownButtonFormField<String?>(
-                    value: _selectedCallerId,
+                    initialValue: _selectedCallerId,
                     isExpanded: true,
                     decoration: const InputDecoration(
                       labelText: 'Caller ID (From)',
