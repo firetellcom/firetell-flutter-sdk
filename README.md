@@ -7,7 +7,7 @@ A Flutter SDK for building VoIP-enabled mobile applications with the [Firetell](
 - **Authentication** — Workspace domain + JWT-based authentication
 - **Outbound Calls** — Initiate calls via REST API + WebRTC
 - **Incoming Calls** — Accept/reject via WebSocket or VoIP push notifications
-- **Call Controls** — Mute, hold/unhold, DTMF, transfer
+- **Call Controls** — Mute, speakerphone (loudspeaker/earpiece), hold/unhold, DTMF, transfer
 - **VoIP Push** — FCM (Android) and APNs VoIP (iOS) push notification support
 - **Full ICE** — Complete ICE candidate gathering before SDP exchange
 - **Real-time Events** — SSE stream for workspace events (agent state, call ring, etc.)
@@ -18,10 +18,7 @@ Add to your `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  firetell_flutter_sdk:
-    git:
-      url: https://github.com/firetellcom/firetell-flutter-sdk.git
-      ref: main
+  firetell_flutter_sdk: ^1.0.3
 ```
 
 ## Quick Start
@@ -127,6 +124,12 @@ await call.mute();
 await call.unmute();
 await call.toggleMute();
 
+// Speakerphone (Loudspeaker / Earpiece)
+await call.setSpeakerphoneOn(true);  // Turn on loudspeaker
+await call.setSpeakerphoneOn(false); // Route back to earpiece
+await call.toggleSpeaker();
+print('Speaker active: ${call.isSpeakerOn}');
+
 // Hold / Unhold
 await call.onhold();
 await call.unhold();
@@ -189,6 +192,11 @@ Add to `AndroidManifest.xml`:
 <uses-permission android:name="android.permission.INTERNET" />
 <uses-permission android:name="android.permission.RECORD_AUDIO" />
 <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+
+<!-- Bluetooth headset audio routing (Required for Android 12+) -->
+<uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
+<uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30" />
+<uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
 ```
 
 ### iOS
@@ -201,6 +209,7 @@ Add to `Info.plist`:
 <key>UIBackgroundModes</key>
 <array>
   <string>voip</string>
+  <string>audio</string>
   <string>fetch</string>
   <string>remote-notification</string>
 </array>

@@ -36,6 +36,11 @@ Add to `android/app/src/main/AndroidManifest.xml`:
 <uses-permission android:name="android.permission.RECORD_AUDIO" />
 <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
 
+<!-- Bluetooth headset audio routing (Required for Android 12+) -->
+<uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
+<uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30" />
+<uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+
 <!-- Required for VoIP push notifications -->
 <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
 <uses-permission android:name="android.permission.VIBRATE" />
@@ -53,6 +58,7 @@ Add to `ios/Runner/Info.plist`:
 <key>UIBackgroundModes</key>
 <array>
   <string>voip</string>
+  <string>audio</string>
   <string>fetch</string>
   <string>remote-notification</string>
 </array>
