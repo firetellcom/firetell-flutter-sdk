@@ -1,0 +1,211 @@
+# Firetell Flutter WebRTC SDK
+
+A Flutter SDK for building VoIP-enabled mobile applications with the [Firetell](https://firetell.com) platform. Supports audio calls, hold, mute, DTMF, call transfer, and VoIP push notifications (FCM & APNs) with native WebSocket event-based signaling.
+
+## Features
+
+- **Authentication** — Workspace domain + JWT-based authentication
+- **Outbound Calls** — Initiate calls via REST API + WebRTC
+- **Incoming Calls** — Accept/reject via WebSocket or VoIP push notifications
+- **Call Controls** — Mute, hold/unhold, DTMF, transfer
+- **VoIP Push** — FCM (Android) and APNs VoIP (iOS) push notification support
+- **Full ICE** — Complete ICE candidate gathering before SDP exchange
+- **Real-time Events** — SSE stream for workspace events (agent state, call ring, etc.)
+
+## Installation
+
+Add to your `pubspec.yaml`:
+
+```yaml
+dependencies:
+  firetell_flutter_sdk:
+    git:
+      url: https://github.com/firetellcom/firetell-flutter-sdk.git
+      ref: main
+```
+
+## Quick Start
+
+### 1. Initialize the Client
+
+```dart
+import 'package:firetell_flutter_sdk/firetell_flutter_sdk.dart';
+
+final client = FiretellClient(
+  jwt: 'your_agent_jwt_token',
+  domain: 'your_workspace.firetell.app',
+);
+
+// Wait for initialization
+final session = await client.ready;
+print('Connected as ${session.username}');
+```
+
+### 2. Make an Outbound Call
+
+```dart
+final call = await client.makeOutboundCall(
+  to: '+1234567890',
+  from: '1001', // Optional caller extension
+);
+
+// Listen for call state changes
+call.onStateChange.listen((event) {
+  print('Call state: ${event.state}');
+  if (event.state == CallState.active) {
+    print('Call connected!');
+  }
+});
+
+// Hang up
+await call.hangup();
+```
+
+### 3. Handle Incoming Calls (SSE — Foreground)
+
+```dart
+client.onCallRing.listen((params) {
+  print('Incoming call from ${params.callerName} (${params.callerNumber})');
+  // Show incoming call UI...
+});
+
+client.onCallOffer.listen((call) async {
+  // User taps "Answer"
+  await call.accept();
+});
+```
+
+### 4. Handle Incoming Calls (VoIP Push — Background)
+
+```dart
+// Parse the push payload
+final ringParams = CallRingParams.fromFcmData(pushData);
+
+// Show native incoming call UI via flutter_callkit_incoming
+// ...
+
+// When user answers:
+final call = await client.handlePushIncomingCall(ringParams);
+await call.accept();
+
+// When user declines (fast HTTP reject, no WS needed):
+final tempCall = Call(iceServers: client.iceServers);
+tempCall.callId = ringParams.callId;
+await tempCall.rejectViaHttp(
+  baseUrl: client.baseUrl,
+  callToken: ringParams.callToken,
+);
+```
+
+### 5. Register Push Tokens
+
+```dart
+// Register VoIP push token (on every cold launch / token refresh)
+await PushTokenService.registerVoipPushToken(
+  baseUrl: client.baseUrl,
+  jwt: client.jwt,
+  pushToken: fcmToken, // or APNs VoIP token
+  deviceId: await DeviceIdHelper.getOrCreate(),
+  platform: 'android', // or 'ios'
+);
+
+// Register notification token (for call.canceled / call.ended dismissal)
+await PushTokenService.registerNotificationPushToken(
+  baseUrl: client.baseUrl,
+  jwt: client.jwt,
+  notificationToken: fcmToken,
+  deviceId: await DeviceIdHelper.getOrCreate(),
+  platform: 'android',
+);
+```
+
+## Call Controls
+
+```dart
+// Mute / Unmute
+await call.mute();
+await call.unmute();
+await call.toggleMute();
+
+// Hold / Unhold
+await call.onhold();
+await call.unhold();
+
+// DTMF
+call.sendDTMF('1');
+call.sendDTMF('#');
+
+// Transfer
+await call.transfer('+1987654321', reason: 'Customer request');
+
+// Hang up
+await call.hangup();
+```
+
+## Call State Machine
+
+```
+Outbound: none → initiated → ringing → answered → active → ended
+Inbound:  none → ringing → answered → active → ended
+Hold:     active ↔ onHold
+```
+
+## WebSocket Signaling Protocol
+
+The SDK uses the same native WebSocket event-based JSON signaling protocol as the Firetell browser SDK:
+
+| Event | Direction | Description |
+|---|---|---|
+| `session.connect` | Client → Server | Authenticate with `call_token` (must be within 3s) |
+| `session.connected` | Server → Client | Authentication ACK |
+| `call.offer` | Client → Server | SDP Offer |
+| `call.answer` | Client → Server | SDP Answer |
+| `call.hold` | Client → Server | Hold call (with renegotiated SDP) |
+| `call.unhold` | Client → Server | Unhold call (with renegotiated SDP) |
+| `call.hangup` | Client → Server | End call |
+| `call.reject` | Client → Server | Reject incoming call |
+| `call.mute` | Client → Server | Mute/unmute notification |
+| `call.dtmf` | Client → Server | DTMF digit |
+| `call.transfer` | Client → Server | Transfer call |
+
+## Architecture
+
+```
+FiretellClient
+├── REST API (POST /api/v1/call-center/calls → call_id, call_token, ws_url)
+├── SSE Stream (GET /stream → real-time workspace events)
+└── Call (per-call instance)
+    ├── Native WebSocket (ws_url, authenticated via call_token)
+    └── RTCPeerConnection (flutter_webrtc, Full ICE)
+```
+
+## Platform Setup
+
+### Android
+
+Add to `AndroidManifest.xml`:
+
+```xml
+<uses-permission android:name="android.permission.INTERNET" />
+<uses-permission android:name="android.permission.RECORD_AUDIO" />
+<uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+```
+
+### iOS
+
+Add to `Info.plist`:
+
+```xml
+<key>NSMicrophoneUsageDescription</key>
+<string>Firetell needs microphone access for VoIP calls</string>
+<key>UIBackgroundModes</key>
+<array>
+  <string>voip</string>
+  <string>fetch</string>
+  <string>remote-notification</string>
+</array>
+```
+
+## License
+
+MIT — see [LICENSE](LICENSE) for details.

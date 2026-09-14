@@ -1,0 +1,23 @@
+name: firetell_flutter_sdk_example
+description: Example app demonstrating Firetell Flutter SDK usage.
+
+publish_to: 'none'
+
+environment:
+  sdk: ">=3.0.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  firetell_flutter_sdk:
+    path: ../
+  firebase_core: ^3.0.0
+  firebase_messaging: ^15.0.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+
+flutter:
+  uses-material-design: true
