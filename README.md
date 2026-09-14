@@ -6,6 +6,7 @@ A Flutter SDK for building VoIP-enabled mobile applications with the [Firetell](
 
 - **Authentication** — Workspace domain + JWT-based authentication
 - **Outbound Calls** — Initiate calls via REST API + WebRTC
+- **Phone Numbers (DIDs)** — Query agent/team accessible numbers to use as outbound Caller ID
 - **Incoming Calls** — Accept/reject via WebSocket or VoIP push notifications
 - **Call Controls** — Mute, speakerphone (loudspeaker/earpiece), hold/unhold, DTMF, transfer
 - **VoIP Push** — FCM (Android) and APNs VoIP (iOS) push notification support
@@ -41,9 +42,13 @@ print('Connected as ${session.username}');
 ### 2. Make an Outbound Call
 
 ```dart
+// Fetch accessible phone numbers (DIDs) for Caller ID
+final phoneNumbers = await client.getPhoneNumbers();
+final callerId = phoneNumbers.firstOrNull?.number; // e.g. '+14155552671'
+
 final call = await client.makeOutboundCall(
   to: '+1234567890',
-  from: '1001', // Optional caller extension
+  from: callerId, // Outbound Caller ID (required for PSTN/mobile calls)
 );
 
 // Listen for call state changes
