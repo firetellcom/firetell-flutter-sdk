@@ -2,6 +2,7 @@ import 'package:firetell_flutter_sdk/firetell_flutter_sdk.dart';
 import 'package:flutter/material.dart';
 
 import 'call_screen.dart';
+import 'video_call_screen.dart';
 
 /// Dial pad screen for making outbound calls.
 class DialpadScreen extends StatefulWidget {
@@ -65,7 +66,7 @@ class _DialpadScreenState extends State<DialpadScreen> {
     }
   }
 
-  Future<void> _makeCall() async {
+  Future<void> _makeCall({bool isVideo = false}) async {
     final to = _numberController.text.trim();
     if (to.isEmpty) return;
 
@@ -75,13 +76,16 @@ class _DialpadScreenState extends State<DialpadScreen> {
       final call = await widget.client.makeOutboundCall(
         to: to,
         from: _selectedCallerId,
+        isVideo: isVideo,
       );
 
       if (!mounted) return;
 
       Navigator.of(context).pushReplacement(
         MaterialPageRoute(
-          builder: (_) => CallScreen(call: call),
+          builder: (_) => isVideo
+              ? VideoCallScreen(call: call)
+              : CallScreen(call: call),
         ),
       );
     } catch (e) {
@@ -211,24 +215,47 @@ class _DialpadScreenState extends State<DialpadScreen> {
             ),
             const SizedBox(height: 24),
 
-            // Call button
-            SizedBox(
-              width: 72,
-              height: 72,
-              child: FloatingActionButton(
-                onPressed: _calling ? null : _makeCall,
-                backgroundColor: Colors.green,
-                child: _calling
-                    ? const SizedBox(
-                        width: 24,
-                        height: 24,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: Colors.white,
-                        ),
-                      )
-                    : const Icon(Icons.call, size: 32, color: Colors.white),
-              ),
+            // Call buttons (Audio & Video)
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                // Audio call
+                SizedBox(
+                  width: 64,
+                  height: 64,
+                  child: FloatingActionButton(
+                    heroTag: 'audio_call_btn',
+                    onPressed:
+                        _calling ? null : () => _makeCall(isVideo: false),
+                    backgroundColor: Colors.green,
+                    child: _calling
+                        ? const SizedBox(
+                            width: 24,
+                            height: 24,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white,
+                            ),
+                          )
+                        : const Icon(Icons.call, size: 28, color: Colors.white),
+                  ),
+                ),
+                const SizedBox(width: 32),
+                // Video call
+                SizedBox(
+                  width: 64,
+                  height: 64,
+                  child: FloatingActionButton(
+                    heroTag: 'video_call_btn',
+                    onPressed:
+                        _calling ? null : () => _makeCall(isVideo: true),
+                    backgroundColor:
+                        Theme.of(context).colorScheme.primary,
+                    child: const Icon(Icons.videocam,
+                        size: 28, color: Colors.white),
+                  ),
+                ),
+              ],
             ),
           ],
         ),

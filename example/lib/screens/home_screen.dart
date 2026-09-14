@@ -9,6 +9,7 @@ import 'package:flutter_callkit_incoming/flutter_callkit_incoming.dart';
 import '../services/push_notification_service.dart';
 import 'call_screen.dart';
 import 'dialpad_screen.dart';
+import 'video_call_screen.dart';
 
 /// Home screen — shows connection status, incoming call events, and
 /// provides access to the dial pad.
@@ -239,7 +240,9 @@ class _HomeScreenState extends State<HomeScreen> {
     if (!mounted) return;
     Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) => CallScreen(call: call),
+        builder: (_) => call.isVideo
+            ? VideoCallScreen(call: call)
+            : CallScreen(call: call),
       ),
     );
   }
@@ -254,11 +257,15 @@ class _HomeScreenState extends State<HomeScreen> {
       context: context,
       barrierDismissible: false,
       builder: (ctx) => AlertDialog(
-        title: const Text('Incoming Call'),
+        title: Text(call.isVideo ? 'Incoming Video Call' : 'Incoming Call'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.phone_callback, size: 48),
+            Icon(call.isVideo ? Icons.videocam : Icons.phone_callback,
+                size: 48,
+                color: call.isVideo
+                    ? Theme.of(ctx).colorScheme.primary
+                    : null),
             const SizedBox(height: 16),
             Text(
               call.fromName.isNotEmpty ? call.fromName : call.from,

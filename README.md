@@ -1,14 +1,15 @@
 # Firetell Flutter WebRTC SDK
 
-A Flutter SDK for building VoIP-enabled mobile applications with the [Firetell](https://firetell.com) platform. Supports audio calls, hold, mute, DTMF, call transfer, and VoIP push notifications (FCM & APNs) with native WebSocket event-based signaling.
+A Flutter SDK for building VoIP-enabled mobile applications with the [Firetell](https://firetell.com) platform. Supports audio and video calls, camera controls (switch camera, mute/unmute video), hold, mute, DTMF, call transfer, and VoIP push notifications (FCM & APNs) with native WebSocket event-based signaling.
 
 ## Features
 
 - **Authentication** — Workspace domain + JWT-based authentication
-- **Outbound Calls** — Initiate calls via REST API + WebRTC
+- **Outbound Calls** — Initiate audio and video calls via REST API + WebRTC
+- **Video Calls** — Full video calling with local Picture-in-Picture preview, remote video rendering, camera switching (front/back), and video mute/unmute
 - **Phone Numbers (DIDs)** — Query agent/team accessible numbers to use as outbound Caller ID
-- **Incoming Calls** — Accept/reject via WebSocket or VoIP push notifications
-- **Call Controls** — Mute, speakerphone (loudspeaker/earpiece), hold/unhold, DTMF, transfer
+- **Incoming Calls** — Accept/reject via WebSocket or VoIP push notifications (auto-detects audio vs video)
+- **Call Controls** — Mute, speakerphone (loudspeaker/earpiece), camera toggle, switch camera, hold/unhold, DTMF, transfer
 - **VoIP Push** — FCM (Android) and APNs VoIP (iOS) push notification support
 - **Full ICE** — Complete ICE candidate gathering before SDP exchange
 - **Real-time Events** — SSE stream for workspace events (agent state, call ring, etc.)
@@ -19,7 +20,7 @@ Add to your `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  firetell_flutter_sdk: ^1.0.3
+  firetell_flutter_sdk: ^1.1.0
 ```
 
 ## Quick Start
@@ -135,6 +136,13 @@ await call.setSpeakerphoneOn(false); // Route back to earpiece
 await call.toggleSpeaker();
 print('Speaker active: ${call.isSpeakerOn}');
 
+// Video & Camera Controls
+await call.switchCamera();           // Switch front / back camera
+await call.muteVideo();              // Turn off camera
+await call.unmuteVideo();            // Turn on camera
+await call.toggleCamera();           // Toggle camera on/off
+print('Camera off: ${call.isCameraOff}');
+
 // Hold / Unhold
 await call.onhold();
 await call.unhold();
@@ -166,13 +174,14 @@ The SDK uses the same native WebSocket event-based JSON signaling protocol as th
 |---|---|---|
 | `session.connect` | Client → Server | Authenticate with `call_token` (must be within 3s) |
 | `session.connected` | Server → Client | Authentication ACK |
-| `call.offer` | Client → Server | SDP Offer |
+| `call.offer` | Client → Server | SDP Offer (audio / video) |
 | `call.answer` | Client → Server | SDP Answer |
 | `call.hold` | Client → Server | Hold call (with renegotiated SDP) |
 | `call.unhold` | Client → Server | Unhold call (with renegotiated SDP) |
 | `call.hangup` | Client → Server | End call |
 | `call.reject` | Client → Server | Reject incoming call |
-| `call.mute` | Client → Server | Mute/unmute notification |
+| `call.mute` | Client → Server | Mute/unmute microphone notification |
+| `call.camera` | Client ⇄ Server | Camera state change notification (`muted: true/false`) |
 | `call.dtmf` | Client → Server | DTMF digit |
 | `call.transfer` | Client → Server | Transfer call |
 
@@ -196,6 +205,7 @@ Add to `AndroidManifest.xml`:
 ```xml
 <uses-permission android:name="android.permission.INTERNET" />
 <uses-permission android:name="android.permission.RECORD_AUDIO" />
+<uses-permission android:name="android.permission.CAMERA" />
 <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
 
 <!-- Bluetooth headset audio routing (Required for Android 12+) -->
@@ -211,6 +221,8 @@ Add to `Info.plist`:
 ```xml
 <key>NSMicrophoneUsageDescription</key>
 <string>Firetell needs microphone access for VoIP calls</string>
+<key>NSCameraUsageDescription</key>
+<string>Firetell needs camera access for video calls</string>
 <key>UIBackgroundModes</key>
 <array>
   <string>voip</string>

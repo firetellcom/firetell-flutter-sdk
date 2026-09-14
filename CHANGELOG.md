@@ -5,6 +5,32 @@ All notable changes to the `firetell_flutter_sdk` package will be documented in 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] - 2026-09-14
+
+### Added
+
+- **Mobile Video Call Support**:
+  - Full video calling support with native WebSocket signaling and WebRTC peer connection.
+  - Camera controls on [Call](lib/src/call.dart):
+    - `isCameraOff` boolean property to check current camera transmission state.
+    - `muteVideo()` to disable local video tracks and notify remote peer via `call.camera`.
+    - `unmuteVideo()` to re-enable local video tracks and notify remote peer via `call.camera`.
+    - `toggleCamera()` convenience method to toggle camera on/off.
+    - `switchCamera()` to switch between front-facing and rear-facing device cameras using `Helper.switchCamera`.
+    - `onCameraChange` broadcast stream to listen for local camera mute/unmute state changes.
+  - SDP video auto-detection:
+    - Automatically detects video media description (`m=video`) in remote SDP offers received via WebSocket signaling (`call.offer`).
+    - Sets `isVideo = true` in `Call.accept()` if SDP offer contains video, ensuring matching audio/video media negotiation.
+  - WebSocket signaling updates:
+    - Added `call.camera` message handler in `_handleWsMessage` to synchronize camera state events between peers.
+- **Example Application Video Calling**:
+  - Created dedicated full-screen [VideoCallScreen](example/lib/screens/video_call_screen.dart) with local Picture-in-Picture preview, remote video feed rendering, camera switch button, camera mute/unmute toggle, microphone mute, speakerphone toggle, and call duration badge.
+  - Added dedicated Video Call action button on the dial pad alongside the audio call button.
+  - Updated in-app incoming call dialog to show video calling indicators when `call.isVideo` is true.
+  - Exported `package:flutter_webrtc/flutter_webrtc.dart` from package library entry point for seamless UI renderer integration (`RTCVideoRenderer`, `RTCVideoView`, `RTCVideoViewObjectFit`).
+- **Platform Permissions**:
+  - Added `android.permission.CAMERA` and `NSCameraUsageDescription` setup guidance in documentation and README.
+
 ## [1.0.3] - 2026-09-14
 
 ### Added
