@@ -5,6 +5,16 @@ All notable changes to the `firetell_flutter_sdk` package will be documented in 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.1] - 2026-09-14
+
+### Fixed
+
+- **iOS VoIP Push Token Registration**:
+  - Differentiated Apple PushKit VoIP tokens (`PKPushRegistry`) from standard Firebase FCM tokens.
+  - Used `FlutterCallkitIncoming.getDevicePushTokenVoIP()` to obtain the raw 64-character hex APNs VoIP token on iOS for `POST /api/v1/me/devices/voip-push-token`.
+  - Maintained FCM token registration for standard notification push (`POST /api/v1/me/devices/notification-push-token`) to handle background call cancellations (`call.canceled`) and endings (`call.ended`) across both iOS and Android.
+  - Updated FCM token refresh listener to automatically synchronize updated tokens based on the running platform.
+
 ## [1.0.0] - 2026-09-14
 
 ### Added

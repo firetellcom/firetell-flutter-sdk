@@ -54,7 +54,10 @@ flutterfire configure
 After the user logs in and `client.ready` resolves:
 
 ```dart
+import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:flutter_callkit_incoming/flutter_callkit_incoming.dart';
 import 'package:firetell_flutter_sdk/firetell_flutter_sdk.dart';
 
 Future<void> registerPushTokens(FiretellClient client) async {
@@ -67,38 +70,45 @@ Future<void> registerPushTokens(FiretellClient client) async {
   );
 
   final deviceId = await DeviceIdHelper.getOrCreate();
-  final fcmToken = await FirebaseMessaging.instance.getToken();
+  final isIOS = !kIsWeb && Platform.isIOS;
 
-  if (fcmToken != null) {
-    // Register VoIP push token (for call.ring)
+  // 1. Obtain VoIP Push Token
+  // - iOS: Apple PushKit token (raw 64-character hex string) via flutter_callkit_incoming
+  // - Android: FCM High-Priority Data message token
+  String? voipToken;
+  if (isIOS) {
+    try {
+      final token = await FlutterCallkitIncoming.getDevicePushTokenVoIP();
+      if (token.isNotEmpty) voipToken = token;
+    } catch (e) {
+      debugPrint('Failed to get iOS VoIP token: $e');
+    }
+  } else {
+    voipToken = await FirebaseMessaging.instance.getToken();
+  }
+
+  // Register VoIP push token (for call.ring)
+  if (voipToken != null && voipToken.isNotEmpty) {
     await PushTokenService.registerVoipPushToken(
       baseUrl: client.baseUrl,
       jwt: client.jwt,
-      pushToken: fcmToken,
+      pushToken: voipToken,
       deviceId: deviceId,
-      platform: Platform.isIOS ? 'ios' : 'android',
+      platform: isIOS ? 'ios' : 'android',
     );
+  }
 
-    // Register notification token (for call.canceled / call.ended)
+  // 2. Register notification token (for call.canceled / call.ended)
+  final fcmToken = await FirebaseMessaging.instance.getToken();
+  if (fcmToken != null && fcmToken.isNotEmpty) {
     await PushTokenService.registerNotificationPushToken(
       baseUrl: client.baseUrl,
       jwt: client.jwt,
       notificationToken: fcmToken,
       deviceId: deviceId,
-      platform: Platform.isIOS ? 'ios' : 'android',
+      platform: isIOS ? 'ios' : 'android',
     );
   }
-
-  // Handle token refresh
-  FirebaseMessaging.instance.onTokenRefresh.listen((newToken) async {
-    await PushTokenService.registerVoipPushToken(
-      baseUrl: client.baseUrl,
-      jwt: client.jwt,
-      pushToken: newToken,
-      deviceId: deviceId,
-      platform: Platform.isIOS ? 'ios' : 'android',
-    );
-  });
 }
 ```
 
