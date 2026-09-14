@@ -2,7 +2,7 @@ name: firetell_flutter_sdk
 description: >
   Firetell WebRTC VoIP SDK for Flutter — audio calls, hold, mute, DTMF, transfer,
   and VoIP push notifications (FCM & APNs) with native WebSocket event-based signaling.
-version: 0.1.0
+version: 1.0.0
 homepage: https://firetell.com
 repository: https://github.com/firetellcom/firetell-flutter-sdk
 
