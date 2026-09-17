@@ -31,7 +31,7 @@ dependencies:
 import 'package:firetell_flutter_sdk/firetell_flutter_sdk.dart';
 
 final client = FiretellClient(
-  jwt: 'your_agent_jwt_token',
+  jwt: 'your_agent_or_client_jwt_token',
   domain: 'your_workspace.firetell.app',
 );
 
@@ -170,20 +170,20 @@ Hold:     active ↔ onHold
 
 The SDK uses the same native WebSocket event-based JSON signaling protocol as the Firetell browser SDK:
 
-| Event | Direction | Description |
-|---|---|---|
-| `session.connect` | Client → Server | Authenticate with `call_token` (must be within 3s) |
-| `session.connected` | Server → Client | Authentication ACK |
-| `call.offer` | Client → Server | SDP Offer (audio / video) |
-| `call.answer` | Client → Server | SDP Answer |
-| `call.hold` | Client → Server | Hold call (with renegotiated SDP) |
-| `call.unhold` | Client → Server | Unhold call (with renegotiated SDP) |
-| `call.hangup` | Client → Server | End call |
-| `call.reject` | Client → Server | Reject incoming call |
-| `call.mute` | Client → Server | Mute/unmute microphone notification |
-| `call.camera` | Client ⇄ Server | Camera state change notification (`muted: true/false`) |
-| `call.dtmf` | Client → Server | DTMF digit |
-| `call.transfer` | Client → Server | Transfer call |
+| Event               | Direction       | Description                                            |
+| ------------------- | --------------- | ------------------------------------------------------ |
+| `session.connect`   | Client → Server | Authenticate with `call_token` (must be within 3s)     |
+| `session.connected` | Server → Client | Authentication ACK                                     |
+| `call.offer`        | Client → Server | SDP Offer (audio / video)                              |
+| `call.answer`       | Client → Server | SDP Answer                                             |
+| `call.hold`         | Client → Server | Hold call (with renegotiated SDP)                      |
+| `call.unhold`       | Client → Server | Unhold call (with renegotiated SDP)                    |
+| `call.hangup`       | Client → Server | End call                                               |
+| `call.reject`       | Client → Server | Reject incoming call                                   |
+| `call.mute`         | Client → Server | Mute/unmute microphone notification                    |
+| `call.camera`       | Client ⇄ Server | Camera state change notification (`muted: true/false`) |
+| `call.dtmf`         | Client → Server | DTMF digit                                             |
+| `call.transfer`     | Client → Server | Transfer call                                          |
 
 ## Architecture
 

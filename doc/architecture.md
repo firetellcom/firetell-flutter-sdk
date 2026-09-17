@@ -87,24 +87,24 @@ The SDK uses a **native WebSocket event-based JSON protocol** — not JSON-RPC, 
 
 ### Event Reference
 
-| Event | Direction | Data | Description |
-|-------|-----------|------|-------------|
-| `session.connect` | Client → Server | `{ call_token }` | Authenticate (must be within 3s) |
-| `session.connected` | Server → Client | `{}` | Authentication ACK |
-| `call.offer` | Client → Server | `{ sdp }` | SDP Offer (outbound) |
-| `call.offer` | Server → Client | `{ sdp }` | SDP Offer (inbound, early media) |
-| `call.answer` | Client → Server | `{ sdp }` | SDP Answer |
-| `call.answer` | Server → Client | `{ sdp }` | Remote SDP Answer |
-| `call.hold` | Client → Server | `{ sdp }` | Hold (renegotiated SDP) |
-| `call.unhold` | Client → Server | `{ sdp }` | Unhold (renegotiated SDP) |
-| `call.hangup` | Client → Server | `{}` | End call |
-| `call.reject` | Client → Server | `{}` | Reject incoming call |
-| `call.mute` | Client → Server | `{ muted }` | Mute state notification |
-| `call.dtmf` | Client → Server | `{ digit }` | DTMF digit |
-| `call.transfer` | Client → Server | `{ target, reason? }` | Transfer call |
-| `call.ringing` | Server → Client | `{}` | Destination ringing |
-| `call.trying` | Server → Client | `{}` | SIP TRYING |
-| `call.ended` | Server → Client | `{ reason? }` | Call ended |
+| Event               | Direction       | Data                  | Description                      |
+| ------------------- | --------------- | --------------------- | -------------------------------- |
+| `session.connect`   | Client → Server | `{ call_token }`      | Authenticate (must be within 3s) |
+| `session.connected` | Server → Client | `{}`                  | Authentication ACK               |
+| `call.offer`        | Client → Server | `{ sdp }`             | SDP Offer (outbound)             |
+| `call.offer`        | Server → Client | `{ sdp }`             | SDP Offer (inbound, early media) |
+| `call.answer`       | Client → Server | `{ sdp }`             | SDP Answer                       |
+| `call.answer`       | Server → Client | `{ sdp }`             | Remote SDP Answer                |
+| `call.hold`         | Client → Server | `{ sdp }`             | Hold (renegotiated SDP)          |
+| `call.unhold`       | Client → Server | `{ sdp }`             | Unhold (renegotiated SDP)        |
+| `call.hangup`       | Client → Server | `{}`                  | End call                         |
+| `call.reject`       | Client → Server | `{}`                  | Reject incoming call             |
+| `call.mute`         | Client → Server | `{ muted }`           | Mute state notification          |
+| `call.dtmf`         | Client → Server | `{ digit }`           | DTMF digit                       |
+| `call.transfer`     | Client → Server | `{ target, reason? }` | Transfer call                    |
+| `call.ringing`      | Server → Client | `{}`                  | Destination ringing              |
+| `call.trying`       | Server → Client | `{}`                  | SIP TRYING                       |
+| `call.ended`        | Server → Client | `{ reason? }`         | Call ended                       |
 
 ### Connection Lifecycle
 
@@ -156,24 +156,24 @@ During hold/unhold SDP renegotiation, the DTLS `a=setup:` role from the remote S
 The SSE (Server-Sent Events) stream provides real-time workspace events:
 
 ```
-GET /api/v1/stream
+GET /stream
 Authorization: Bearer {jwt}
 Accept: text/event-stream
 ```
 
 ### Events
 
-| Event | Description |
-|-------|-------------|
-| `call.ring` | Incoming call for this agent |
-| `call.created` | New call in workspace |
-| `call.started` | Call ringing at destination |
-| `call.answered` | Call was answered |
-| `call.ended` | Call ended |
-| `call.canceled` | Call canceled (before answer) |
-| `agent.state` | Agent state changed |
-| `system.ping` | Keep-alive (ignored) |
-| `system.error` | Server error (e.g., SSE_LIMIT_EXCEEDED) |
+| Event           | Description                             |
+| --------------- | --------------------------------------- |
+| `call.ring`     | Incoming call for this agent            |
+| `call.created`  | New call in workspace                   |
+| `call.started`  | Call ringing at destination             |
+| `call.answered` | Call was answered                       |
+| `call.ended`    | Call ended                              |
+| `call.canceled` | Call canceled (before answer)           |
+| `agent.state`   | Agent state changed                     |
+| `system.ping`   | Keep-alive (ignored)                    |
+| `system.error`  | Server error (e.g., SSE_LIMIT_EXCEEDED) |
 
 ### Reconnection
 
@@ -186,25 +186,25 @@ The SSE client uses exponential backoff with jitter:
 
 ## REST API Endpoints
 
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/api/v1/workspace/metadata` | Workspace metadata (ICE servers, WS URLs) |
-| `POST` | `/api/v1/call-center/calls` | Create outbound call |
-| `POST` | `/api/v1/call-center/calls/{id}/reject` | Reject call (HTTP, no WS) |
-| `POST` | `/api/v1/call-center/calls/{id}/transfer` | Transfer call (REST fallback) |
-| `GET` | `/api/v1/stream` | SSE event stream |
-| `POST` | `/api/v1/me/voip-push-token` | Register VoIP push token |
-| `POST` | `/api/v1/me/notification-push-token` | Register notification push token |
-| `POST` | `/api/v1/me/logout` | Logout + remove push tokens |
+| Method | Path                                      | Description                               |
+| ------ | ----------------------------------------- | ----------------------------------------- |
+| `GET`  | `/api/v1/workspace/metadata`              | Workspace metadata (ICE servers, WS URLs) |
+| `POST` | `/api/v1/call-center/calls`               | Create outbound call                      |
+| `POST` | `/api/v1/call-center/calls/{id}/reject`   | Reject call (HTTP, no WS)                 |
+| `POST` | `/api/v1/call-center/calls/{id}/transfer` | Transfer call (REST fallback)             |
+| `GET`  | `/stream`                                 | SSE event stream                          |
+| `POST` | `/api/v1/me/voip-push-token`              | Register VoIP push token                  |
+| `POST` | `/api/v1/me/notification-push-token`      | Register notification push token          |
+| `POST` | `/api/v1/me/logout`                       | Logout + remove push tokens               |
 
 ## Dependencies
 
-| Package | Purpose |
-|---------|---------|
-| `flutter_webrtc` | WebRTC peer connection + media |
-| `web_socket_channel` | Per-call WebSocket signaling |
-| `http` | REST API + SSE stream |
-| `uuid` | Call session IDs |
-| `shared_preferences` | Device ID + ICE server cache |
-| `device_info_plus` | Native device ID (iOS/Android) |
+| Package                    | Purpose                             |
+| -------------------------- | ----------------------------------- |
+| `flutter_webrtc`           | WebRTC peer connection + media      |
+| `web_socket_channel`       | Per-call WebSocket signaling        |
+| `http`                     | REST API + SSE stream               |
+| `uuid`                     | Call session IDs                    |
+| `shared_preferences`       | Device ID + ICE server cache        |
+| `device_info_plus`         | Native device ID (iOS/Android)      |
 | `flutter_callkit_incoming` | Native CallKit/ConnectionService UI |
