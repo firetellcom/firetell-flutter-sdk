@@ -5,6 +5,29 @@ All notable changes to the `firetell_flutter_sdk` package will be documented in 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.1] - 2026-09-22
+
+### Fixed
+
+- **iOS CallKit UUID requirement** — iOS CallKit rejects call IDs that are not in UUID format.
+  The VoIP push payload from the Firetell server uses its own string format (`call_xxxxxxxx`),
+  which caused CallKit to silently fail on iOS.
+
+  Added `CallIdMapper` (`lib/src/utils/call_id_mapper.dart`): a bidirectional singleton registry
+  that maps server call IDs to RFC 4122 v4 UUIDs at the point of `showIncomingCall()`. The UUID
+  is passed to `CallKitParams.id` for CallKit, while all internal operations (WebSocket signaling,
+  HTTP reject, `activeCalls` map) continue to use the original server call ID.
+
+  - UUID is generated using `dart:math` (`Random.secure()`) — no new dependencies added.
+  - `dismissIncomingCall(serverCallId)` now resolves the correct UUID before calling `endCall()`.
+  - Mapper entries are cleaned up on accept, decline, end, and timeout to prevent memory leaks.
+  - Android is unaffected: the mapper's fallback path returns the raw ID if no UUID mapping exists.
+
+### Added
+
+- `CallIdMapper` exported from the top-level `firetell_flutter_sdk.dart` for consumer-side
+  introspection and debugging.
+
 ## [1.1.0] - 2026-09-14
 
 ### Added

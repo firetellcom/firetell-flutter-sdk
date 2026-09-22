@@ -11,6 +11,7 @@ import 'package:flutter_callkit_incoming/flutter_callkit_incoming.dart';
 import '../call.dart';
 import '../firetell_client.dart';
 import '../models/call_ring_params.dart';
+import '../utils/call_id_mapper.dart';
 
 /// Callback invoked when a push-originated call is successfully connected
 /// and ready for media (after user answers on CallKit / lock screen).
@@ -68,29 +69,52 @@ class CallKitHandler {
   /// Called when an error occurs during call setup.
   OnCallError? onCallError;
 
-  /// Active ring params indexed by call ID, kept for lookup on answer/decline.
+  /// Active ring params indexed by **server call ID**, kept for lookup on
+  /// answer/decline.
   final Map<String, CallRingParams> _pendingCalls = {};
 
   /// Active Call instances being set up (prevents duplicate answer handling).
+  /// Also indexed by **server call ID**.
   final Map<String, Call> _connectingCalls = {};
 
   StreamSubscription<callkit.CallEvent?>? _callKitSubscription;
+
+  /// Convenience accessor for the call ID mapper singleton.
+  final _mapper = CallIdMapper.instance;
 
   /// Show the native incoming call UI (CallKit on iOS, notification on Android).
   ///
   /// Call this when a VoIP push notification is received.
   /// The handler will automatically manage answer/decline/timeout events.
+  ///
+  /// On iOS, CallKit requires the call ID to be a UUID. This method
+  /// automatically maps [params.callId] (the server format, e.g.
+  /// `call_xxxxxxxx`) to a generated UUID via [CallIdMapper], so that
+  /// all internal operations (WebSocket, HTTP reject) continue using
+  /// the server call ID.
   Future<void> showIncomingCall(CallRingParams params) async {
+    // Store pending call by server call ID (used by WS / HTTP operations).
     _pendingCalls[params.callId] = params;
 
+    // iOS CallKit requires a UUID — map server ID → UUID and persist the
+    // mapping so we can reverse-lookup on accept/decline/end events.
+    final iosUuid = _mapper.register(params.callId);
+
+    developer.log(
+      'CallKitHandler: showIncomingCall serverCallId=${params.callId} iosUuid=$iosUuid',
+      name: 'FiretellSDK',
+    );
+
     final callKitParams = CallKitParams(
-      id: params.callId,
+      id: iosUuid,
       nameCaller: params.callerName.isNotEmpty
           ? params.callerName
           : params.callerNumber,
       handle: params.callerNumber,
       type: params.isVideo ? 1 : 0, // 0 = audio, 1 = video
       duration: params.ringTimeoutSecs * 1000,
+      // Store the full params map in `extra` so we can reconstruct
+      // CallRingParams even if the app was killed and restarted.
       extra: params.toMap(),
       ios: const IOSParams(
         supportsVideo: false,
@@ -123,14 +147,21 @@ class CallKitHandler {
   }
 
   /// Dismiss the native incoming call UI for a specific call.
-  Future<void> dismissIncomingCall(String callId) async {
-    _pendingCalls.remove(callId);
-    await FlutterCallkitIncoming.endCall(callId);
+  ///
+  /// [serverCallId] is the Firetell server call ID (e.g. `call_xxxxxxxx`).
+  /// The corresponding iOS UUID is resolved automatically.
+  Future<void> dismissIncomingCall(String serverCallId) async {
+    _pendingCalls.remove(serverCallId);
+    // Resolve the iOS UUID that was registered when showIncomingCall() ran.
+    final iosUuid = _mapper.uuidFromServerId(serverCallId) ?? serverCallId;
+    _mapper.remove(serverCallId);
+    await FlutterCallkitIncoming.endCall(iosUuid);
   }
 
   /// Dismiss all pending incoming call UIs.
   Future<void> dismissAllCalls() async {
     _pendingCalls.clear();
+    _mapper.clear();
     await FlutterCallkitIncoming.endAllCalls();
   }
 
@@ -140,6 +171,7 @@ class CallKitHandler {
     _callKitSubscription = null;
     _pendingCalls.clear();
     _connectingCalls.clear();
+    _mapper.clear();
   }
 
   // ─── CallKit Event Listener ────────────────────────────────────────
@@ -169,11 +201,12 @@ class CallKitHandler {
   /// This is the critical path: must quickly connect WS + setup WebRTC
   /// before the call times out on the server side.
   Future<void> _handleAccept(callkit.CallEvent event) async {
-    final callId = _extractCallId(event);
-    if (callId == null) return;
+    final serverCallId = _extractServerCallId(event);
+    if (serverCallId == null) return;
 
-    var params = _pendingCalls.remove(callId);
+    var params = _pendingCalls.remove(serverCallId);
     if (params == null && event is callkit.CallEventActionCallAccept) {
+      // Fallback: reconstruct from the `extra` map we stored in showIncomingCall.
       final extra = event.callKitParams.extra;
       if (extra != null) {
         params = CallRingParams.fromMap(extra);
@@ -181,36 +214,42 @@ class CallKitHandler {
     }
     if (params == null) {
       developer.log(
-        'CallKitHandler: No pending call found for $callId',
+        'CallKitHandler: No pending call found for serverCallId=$serverCallId',
         name: 'FiretellSDK',
       );
       return;
     }
 
     // Prevent duplicate answer handling
-    if (_connectingCalls.containsKey(callId)) return;
+    if (_connectingCalls.containsKey(serverCallId)) return;
+
+    // Resolve iOS UUID for any CallKit calls needed in the error path.
+    final iosUuid =
+        _mapper.uuidFromServerId(serverCallId) ?? serverCallId;
 
     try {
       // 1. Connect per-call WebSocket (authenticated via call_token)
       final call = await client.handlePushIncomingCall(params);
-      _connectingCalls[callId] = call;
+      _connectingCalls[serverCallId] = call;
 
       // 2. Setup WebRTC media + send SDP answer
       await call.accept();
 
-      _connectingCalls.remove(callId);
+      _connectingCalls.remove(serverCallId);
+      _mapper.remove(serverCallId);
 
       // 3. Notify consumer — call is live, media flowing
       onCallConnected?.call(call);
     } catch (e) {
-      _connectingCalls.remove(callId);
+      _connectingCalls.remove(serverCallId);
+      _mapper.remove(serverCallId);
       developer.log(
-        'CallKitHandler: Failed to connect call $callId: $e',
+        'CallKitHandler: Failed to connect call serverCallId=$serverCallId: $e',
         name: 'FiretellSDK',
       );
-      // End the CallKit call since WebRTC setup failed
-      await FlutterCallkitIncoming.endCall(callId);
-      onCallError?.call(callId, e);
+      // End the CallKit call (by iOS UUID) since WebRTC setup failed.
+      await FlutterCallkitIncoming.endCall(iosUuid);
+      onCallError?.call(serverCallId, e);
     }
   }
 
@@ -218,44 +257,48 @@ class CallKitHandler {
   ///
   /// Uses fast HTTP reject (no WS needed) — ~50ms response time.
   Future<void> _handleDecline(callkit.CallEvent event) async {
-    final callId = _extractCallId(event);
-    if (callId == null) return;
+    final serverCallId = _extractServerCallId(event);
+    if (serverCallId == null) return;
 
-    var params = _pendingCalls.remove(callId);
+    var params = _pendingCalls.remove(serverCallId);
     if (params == null && event is callkit.CallEventActionCallDecline) {
       final extra = event.callKitParams.extra;
       if (extra != null) {
         params = CallRingParams.fromMap(extra);
       }
     }
+
+    _mapper.remove(serverCallId);
+
     if (params == null) return;
 
     // Fast HTTP reject using call_token — no WebSocket needed
     final call = Call(iceServers: client.iceServers);
-    call.callId = callId;
+    call.callId = serverCallId;
     await call.rejectViaHttp(
       baseUrl: client.baseUrl,
       callToken: params.callToken,
     );
 
-    onCallDeclined?.call(callId);
+    onCallDeclined?.call(serverCallId);
   }
 
   /// Call ended from the native UI (e.g. user pulled down notification).
   Future<void> _handleEnded(callkit.CallEvent event) async {
-    final callId = _extractCallId(event);
-    if (callId == null) return;
+    final serverCallId = _extractServerCallId(event);
+    if (serverCallId == null) return;
 
-    _pendingCalls.remove(callId);
+    _pendingCalls.remove(serverCallId);
+    _mapper.remove(serverCallId);
 
     // If there's an active call, hang it up
-    final activeCall = client.activeCalls[callId];
+    final activeCall = client.activeCalls[serverCallId];
     if (activeCall != null) {
       await activeCall.hangup();
     }
 
     // If there's a connecting call, destroy it
-    final connectingCall = _connectingCalls.remove(callId);
+    final connectingCall = _connectingCalls.remove(serverCallId);
     if (connectingCall != null) {
       await connectingCall.destroy(sendHangup: true);
     }
@@ -263,19 +306,41 @@ class CallKitHandler {
 
   /// Call timed out (ring expired).
   Future<void> _handleTimeout(callkit.CallEvent event) async {
-    final callId = _extractCallId(event);
-    if (callId == null) return;
+    final serverCallId = _extractServerCallId(event);
+    if (serverCallId == null) return;
 
-    _pendingCalls.remove(callId);
-    _connectingCalls.remove(callId);
+    _pendingCalls.remove(serverCallId);
+    _connectingCalls.remove(serverCallId);
+    _mapper.remove(serverCallId);
 
     developer.log(
-      'CallKitHandler: Call $callId timed out',
+      'CallKitHandler: Call serverCallId=$serverCallId timed out',
       name: 'FiretellSDK',
     );
   }
 
-  String? _extractCallId(callkit.CallEvent event) {
+  /// Extract the **server call ID** from a CallKit event.
+  ///
+  /// CallKit events carry an iOS UUID as the call identifier. This method
+  /// resolves that UUID back to the Firetell server call ID using
+  /// [CallIdMapper]. If the UUID is not found in the mapper (e.g. on
+  /// Android where IDs are not UUIDs, or for non-push calls), the raw
+  /// value from the event is returned as a fallback.
+  String? _extractServerCallId(callkit.CallEvent event) {
+    final rawId = _extractRawCallKitId(event);
+    if (rawId == null) return null;
+
+    // Attempt to resolve iOS UUID → server call ID.
+    final serverId = _mapper.serverIdFromUuid(rawId);
+    if (serverId != null) return serverId;
+
+    // Fallback: the raw ID may already be a server call ID (Android, or
+    // outbound calls that never went through showIncomingCall).
+    return rawId;
+  }
+
+  /// Extract the raw ID string directly from the CallKit event payload.
+  String? _extractRawCallKitId(callkit.CallEvent event) {
     if (event is callkit.CallEventActionCallAccept) {
       return event.callKitParams.id;
     } else if (event is callkit.CallEventActionCallDecline) {

@@ -20,7 +20,7 @@ Add to your `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  firetell_flutter_sdk: ^1.1.0
+  firetell_flutter_sdk: ^1.1.1
 ```
 
 ## Quick Start

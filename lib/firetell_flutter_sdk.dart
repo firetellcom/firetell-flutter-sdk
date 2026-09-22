@@ -10,6 +10,7 @@ export 'src/call.dart';
 export 'src/enums/enums.dart';
 export 'src/models/models.dart';
 export 'src/push/push.dart';
+export 'src/utils/call_id_mapper.dart';
 export 'src/utils/device_id.dart';
 export 'src/utils/ice_server_cache.dart';
 export 'src/utils/jwt_decoder.dart';
