@@ -2,10 +2,21 @@
 
 ## Requirements
 
-- Dart SDK `>=3.0.0`
-- Flutter SDK `>=3.10.0`
-- iOS 13.0+ / Android API 24+
+- Dart SDK `>=3.10.0`
+- Flutter SDK `>=3.38.1`
+- iOS 15.0+
+- Android API 24+ with `compileSdk` 36 and `targetSdk` 36
 - A Firetell workspace with agent/client JWT
+
+> [!WARNING]
+> **CHECK THESE VERSIONS BEFORE INSTALLING:** The effective minimums come from
+> the resolved dependencies and are higher than the package's current
+> `pubspec.yaml` constraints. In particular, `flutter_callkit_incoming 3.1.6`
+> requires iOS 15.0 and `device_info_plus 13.2.0` requires Flutter 3.38.1 with
+> Dart 3.10.0.
+
+See [INSTALLATION.MD](INSTALLATION.MD) for the complete compatibility matrix,
+native project configuration and release validation checklist.
 
 ## Installation
 
@@ -13,10 +24,7 @@ Add the SDK to your `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  firetell_flutter_sdk:
-    git:
-      url: https://github.com/firetellcom/firetell-flutter-sdk.git
-      ref: main
+  firetell_flutter_sdk: ^1.1.1
 ```
 
 Then run:
@@ -98,9 +106,10 @@ await call.hangup();
 
 ## Next Steps
 
-- [Authentication](authentication.md) — JWT auth and session management
-- [Outbound Calls](outbound-calls.md) — Making calls
-- [Incoming Calls](incoming-calls.md) — Handling inbound calls (SSE + push)
-- [Call Controls](call-controls.md) — Mute, hold, DTMF, transfer
-- [VoIP Push Notifications](voip-push.md) — FCM and APNs setup
-- [Architecture](architecture.md) — SDK internals and signaling protocol
+- [Installation](INSTALLATION.MD) — Toolchain and native platform setup
+- [Authentication](AUTHENTICATION.MD) — JWT auth and session management
+- [Outbound Calls](OUTBOUND_CALLS.MD) — Making calls
+- [Incoming Calls](INCOMING_CALLS.MD) — Handling inbound calls (SSE + push)
+- [Call Controls](CALL_CONTROLS.MD) — Mute, hold, DTMF, transfer
+- [VoIP Push Notifications](VOIP_PUSH.MD) — FCM and APNs setup
+- [Architecture](ARCHITECTURE.MD) — SDK internals and signaling protocol

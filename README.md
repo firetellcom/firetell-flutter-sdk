@@ -16,12 +16,31 @@ A Flutter SDK for building VoIP-enabled mobile applications with the [Firetell](
 
 ## Installation
 
+### Requirements
+
+| Component | Minimum |
+| --- | --- |
+| Flutter | `3.38.1` |
+| Dart | `3.10.0` |
+| iOS | `15.0` |
+| Android | API 24 with `compileSdk` 36 and `targetSdk` 36 |
+
+> [!WARNING]
+> **VERSION REQUIREMENTS:** Do not rely on the lower Flutter, Dart or iOS values
+> currently declared in `pubspec.yaml`. The resolved native dependencies require
+> Flutter `3.38.1` or newer, Dart `3.10.0` or newer, iOS `15.0` or newer, and
+> Android `compileSdk`/`targetSdk` 36. An iOS target below 15 fails during pod
+> installation.
+
 Add to your `pubspec.yaml`:
 
 ```yaml
 dependencies:
   firetell_flutter_sdk: ^1.1.1
 ```
+
+See [INSTALLATION.MD](doc/INSTALLATION.MD) for complete Android/iOS setup,
+CallKit UUID requirements and the production validation checklist.
 
 ## Quick Start
 
@@ -67,13 +86,12 @@ await call.hangup();
 ### 3. Handle Incoming Calls (SSE — Foreground)
 
 ```dart
-client.onCallRing.listen((params) {
+client.onCallRing.listen((params) async {
   print('Incoming call from ${params.callerName} (${params.callerNumber})');
-  // Show incoming call UI...
-});
 
-client.onCallOffer.listen((call) async {
-  // User taps "Answer"
+  final call = await client.handlePushIncomingCall(params);
+
+  // Call this after the user taps "Answer" in your incoming-call UI.
   await call.accept();
 });
 ```
