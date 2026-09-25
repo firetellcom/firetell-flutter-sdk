@@ -30,3 +30,7 @@ migrate_working_dir/
 
 # For a library package, pubspec.lock should not be checked in
 pubspec.lock
+
+# Antigravity / Agent data
+.codegraph/
+.codegraph
