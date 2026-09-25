@@ -371,4 +371,4 @@ This removes the device's push tokens server-side so it no longer receives incom
 
 ## Next Steps
 
-- [Architecture](architecture.md)
+- [Architecture](ARCHITECTURE.MD)

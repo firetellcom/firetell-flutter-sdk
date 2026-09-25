@@ -109,5 +109,5 @@ try {
 
 ## Next Steps
 
-- [Incoming Calls](incoming-calls.md)
-- [Call Controls](call-controls.md) — Mute, hold, DTMF, transfer
+- [Incoming Calls](INCOMING_CALLS.MD)
+- [Call Controls](CALL_CONTROLS.MD) — Mute, hold, DTMF, transfer

@@ -81,7 +81,7 @@ The HTTP reject completes in ~50ms vs several seconds for WebSocket-based reject
 
 ## Background / Killed — VoIP Push
 
-When the app is in the background or completely terminated, calls arrive via push notifications. See the dedicated [VoIP Push Notifications](voip-push.md) guide for full setup.
+When the app is in the background or completely terminated, calls arrive via push notifications. See the dedicated [VoIP Push Notifications](VOIP_PUSH.MD) guide for full setup.
 
 ### Quick Overview
 
@@ -132,5 +132,5 @@ Inbound call:
 
 ## Next Steps
 
-- [VoIP Push Notifications](voip-push.md) — Full FCM + APNs setup
-- [Call Controls](call-controls.md) — Mute, hold, DTMF, transfer
+- [VoIP Push Notifications](VOIP_PUSH.MD) — Full FCM + APNs setup
+- [Call Controls](CALL_CONTROLS.MD) — Mute, hold, DTMF, transfer
