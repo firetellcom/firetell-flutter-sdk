@@ -20,6 +20,21 @@ class ApiEndpoints {
   /// Agent phone numbers (DIDs).
   static const phoneNumbers = '/api/v1/call-center/phone-numbers';
 
+  /// Agent conversations (SMS Inbox).
+  static const conversations = '/api/v1/call-center/conversations';
+
+  /// Conversation details or update.
+  static String conversationDetails(String id) =>
+      '/api/v1/call-center/conversations/${Uri.encodeComponent(id)}';
+
+  /// Conversation messages history or send message.
+  static String conversationMessages(String id) =>
+      '/api/v1/call-center/conversations/${Uri.encodeComponent(id)}/messages';
+
+  /// Mark conversation as read.
+  static String conversationRead(String id) =>
+      '/api/v1/call-center/conversations/${Uri.encodeComponent(id)}/read';
+
   /// Register VoIP push token.
   static const voipPushToken = '/api/v1/me/devices/voip-push-token';
 

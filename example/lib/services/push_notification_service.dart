@@ -8,6 +8,9 @@ import 'package:flutter_callkit_incoming/entities/ios_params.dart';
 import 'package:flutter_callkit_incoming/entities/android_params.dart';
 import 'package:flutter_callkit_incoming/entities/notification_params.dart';
 import 'package:flutter_callkit_incoming/flutter_callkit_incoming.dart';
+import 'package:flutter/material.dart';
+import '../screens/chat_screen.dart';
+import 'cold_start_call_handler.dart';
 
 /// Service that bridges platform push notifications (FCM / APNs) with
 /// the Firetell SDK and flutter_callkit_incoming.
@@ -125,13 +128,47 @@ class PushNotificationService {
       _handleForegroundMessage(message, client);
     });
 
-    // 5. Handle app opened from notification tap (terminated → foreground)
+    // 5. Handle app opened from background notification tap
+    FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
+      debugPrint('FCM onMessageOpenedApp: ${message.data}');
+      client.handlePushEvent(message.data);
+      _handleNotificationTap(message.data, client);
+    });
+
+    // 6. Handle app opened from notification tap (terminated → foreground)
     final initialMessage = await _messaging.getInitialMessage();
     if (initialMessage != null) {
       debugPrint('App opened from push: ${initialMessage.data}');
-      // The call.ring push has already triggered CallKit UI via
-      // the background handler. CallKitHandler.onCallConnected will
-      // fire when user answers.
+      client.handlePushEvent(initialMessage.data);
+      _handleNotificationTap(initialMessage.data, client);
+    }
+  }
+
+  static Future<void> _handleNotificationTap(
+    Map<String, dynamic> data,
+    FiretellClient client,
+  ) async {
+    final event = data['event']?.toString();
+    final conversationId = data['conversation_id']?.toString() ??
+        (event == 'conversation.updated' ? data['id']?.toString() : null);
+
+    if (conversationId != null && conversationId.isNotEmpty) {
+      try {
+        final conversation = await client.getConversation(conversationId);
+        final nav = ColdStartCallHandler.navigatorKey?.currentState;
+        if (nav != null) {
+          nav.push(
+            MaterialPageRoute(
+              builder: (_) => ChatScreen(
+                client: client,
+                conversation: conversation,
+              ),
+            ),
+          );
+        }
+      } catch (e) {
+        debugPrint('Failed to open conversation from push tap: ');
+      }
     }
   }
 
@@ -141,6 +178,9 @@ class PushNotificationService {
     RemoteMessage message,
     FiretellClient client,
   ) {
+    // Dispatch SMS conversation push events (message.received, conversation.updated)
+    client.handlePushEvent(message.data);
+
     final event = message.data['event'] as String?;
 
     if (event == 'call.canceled' || event == 'call.ended') {
