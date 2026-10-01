@@ -5,6 +5,35 @@ All notable changes to the `firetell_flutter_sdk` package will be documented in 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.2] - 2026-10-01
+
+### Added
+
+- **Call Center SMS Conversations Module**:
+  - Full parity with Firetell Client SDK v1.2.6 & v1.2.7 for SMS/MMS inbox and conversational messaging.
+  - **REST API Methods on `FiretellClient`**:
+    - `getConversations({query})`: List paginated conversation threads with filtering by status, assigned agent, assigned team, unread count, and search query.
+    - `getConversation(conversationId)`: Retrieve details of a specific conversation thread.
+    - `startConversation(payload)`: Initiate a new SMS conversation thread or dispatch initial outbound message to a client using `client_number` (with backward-compatible fallback to `to`).
+    - `updateConversation(conversationId, payload)`: Update conversation metadata (assign/reassign agent, team, or toggle open/closed status).
+    - `markConversationAsRead(conversationId)`: Mark conversation as read and reset `unread_count` to 0.
+    - `getConversationMessages(conversationId, {query})`: Fetch chronological message history of a conversation thread.
+    - `sendConversationMessage(conversationId, payload)`: Send outbound SMS/MMS message with optional media attachments in an active thread.
+  - **Real-Time Client Events & Streams on `FiretellClient`**:
+    - `onMessageReceived` (`ClientEvent.messageReceived` / `"message.received"`): Fired when an inbound SMS is received from a customer.
+    - `onMessageSent` (`ClientEvent.messageSent` / `"message.sent"`): Fired when an outbound SMS is sent by any agent in the workspace/team (prevents agent collisions).
+    - `onMessageUpdated` (`ClientEvent.messageUpdated` / `"message.updated"`): Fired when carrier delivery status transitions (`queued`, `sent`, `delivered`, `failed`).
+    - `onConversationUpdated` (`ClientEvent.conversationUpdated` / `"conversation.updated"`): Fired when conversation thread assignment, status, or unread counter changes.
+  - **Push Notification Support (`handlePushEvent`)**:
+    - Added `client.handlePushEvent(Map<String, dynamic> payload)` to process background and foreground push notifications (FCM & APNs) containing `message_data` or `conversation_data`.
+  - **Data Models**:
+    - `Conversation`, `ConversationLastMessage`, `ConversationMessage`.
+    - `ListConversationsQuery`, `ConversationsResponse`.
+    - `ListMessagesQuery`, `ConversationMessagesResponse`.
+    - `StartConversationPayload`, `StartConversationResponse`.
+    - `SendConversationMessagePayload`, `UpdateConversationPayload`, `MarkAsReadResponse`.
+    - `MessageReceivedEvent`, `MessageSentEvent`, `MessageUpdatedEvent`, `ConversationUpdatedEvent`.
+
 ## [1.1.1] - 2026-09-22
 
 ### Fixed

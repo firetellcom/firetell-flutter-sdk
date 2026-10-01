@@ -16,12 +16,12 @@ import 'utils/ice_server_cache.dart';
 import 'utils/sse_stream_client.dart';
 
 /// SDK version.
-const sdkVersion = '1.0.3';
+const sdkVersion = '1.1.2';
 
-/// Main Firetell client for managing VoIP calls.
+/// Main Firetell client for managing VoIP calls and Call Center SMS conversations.
 ///
 /// Handles authentication, workspace metadata fetching, SSE real-time event
-/// streaming, and call lifecycle management.
+/// streaming, call lifecycle management, and SMS inbox/messaging.
 ///
 /// Usage:
 /// ```dart
@@ -38,6 +38,12 @@ const sdkVersion = '1.0.3';
 /// // Listen for incoming calls
 /// client.onCallRing.listen((params) {
 ///   // Show incoming call UI
+/// });
+///
+/// // Call Center SMS Inbox
+/// final inbox = await client.getConversations();
+/// client.onMessageReceived.listen((event) {
+///   print('New SMS from ${event.from}: ${event.body}');
 /// });
 /// ```
 class FiretellClient {
@@ -109,6 +115,16 @@ class FiretellClient {
   final _connectionStateController =
       StreamController<SseConnectionState>.broadcast();
 
+  // Call Center SMS real-time streams
+  final _messageReceivedController =
+      StreamController<MessageReceivedEvent>.broadcast();
+  final _messageSentController =
+      StreamController<MessageSentEvent>.broadcast();
+  final _messageUpdatedController =
+      StreamController<MessageUpdatedEvent>.broadcast();
+  final _conversationUpdatedController =
+      StreamController<ConversationUpdatedEvent>.broadcast();
+
   /// Incoming call ring notification (from SSE stream).
   Stream<CallRingParams> get onCallRing => _callRingController.stream;
 
@@ -147,6 +163,22 @@ class FiretellClient {
   /// SSE connection state changes.
   Stream<SseConnectionState> get onConnectionState =>
       _connectionStateController.stream;
+
+  /// Inbound SMS/MMS message received from customer.
+  Stream<MessageReceivedEvent> get onMessageReceived =>
+      _messageReceivedController.stream;
+
+  /// Outbound SMS/MMS message sent by any agent in the workspace/team.
+  Stream<MessageSentEvent> get onMessageSent =>
+      _messageSentController.stream;
+
+  /// Message carrier delivery status updated (`queued`, `sent`, `delivered`, `failed`).
+  Stream<MessageUpdatedEvent> get onMessageUpdated =>
+      _messageUpdatedController.stream;
+
+  /// Conversation thread updated (status, assignment, unread count, or last message).
+  Stream<ConversationUpdatedEvent> get onConversationUpdated =>
+      _conversationUpdatedController.stream;
 
   // ─── Private State ─────────────────────────────────────────────────
 
@@ -348,6 +380,30 @@ class FiretellClient {
       case 'agent.state' || 'agent.state.forced':
         _agentStateController.add(data);
 
+      case 'message.received':
+        final eventData = MessageReceivedEvent.fromJson(data);
+        if (!_messageReceivedController.isClosed) {
+          _messageReceivedController.add(eventData);
+        }
+
+      case 'message.sent':
+        final eventData = MessageSentEvent.fromJson(data);
+        if (!_messageSentController.isClosed) {
+          _messageSentController.add(eventData);
+        }
+
+      case 'message.updated':
+        final eventData = MessageUpdatedEvent.fromJson(data);
+        if (!_messageUpdatedController.isClosed) {
+          _messageUpdatedController.add(eventData);
+        }
+
+      case 'conversation.updated':
+        final eventData = ConversationUpdatedEvent.fromJson(data);
+        if (!_conversationUpdatedController.isClosed) {
+          _conversationUpdatedController.add(eventData);
+        }
+
       case 'system.error':
         developer.log(
           'SSE system error: $data',
@@ -367,6 +423,59 @@ class FiretellClient {
           // Forward unhandled events for consumer flexibility
         }
     }
+  }
+
+  /// Ingest and parse an incoming push notification payload for SMS messages or conversations.
+  ///
+  /// Dispatches to [onMessageReceived] or [onConversationUpdated] if the push
+  /// event matches `message.received` or `conversation.updated`.
+  ///
+  /// Returns `true` if the payload was recognized and handled.
+  bool handlePushEvent(Map<String, dynamic> payload) {
+    var data = payload;
+    var event = payload['event']?.toString();
+
+    // 1. Unwrap data if nested in 'data' map or 'data' JSON string (FCM payloads)
+    if (payload['data'] != null) {
+      if (payload['data'] is Map<String, dynamic>) {
+        data = payload['data'] as Map<String, dynamic>;
+        event ??= data['event']?.toString();
+      } else if (payload['data'] is Map) {
+        data = (payload['data'] as Map).cast<String, dynamic>();
+        event ??= data['event']?.toString();
+      } else if (payload['data'] is String) {
+        try {
+          final decoded = jsonDecode(payload['data'] as String);
+          if (decoded is Map<String, dynamic>) {
+            data = decoded;
+            event ??= decoded['event']?.toString();
+          } else if (decoded is Map) {
+            data = decoded.cast<String, dynamic>();
+            event ??= data['event']?.toString();
+          }
+        } catch (_) {}
+      }
+    }
+
+    event ??= payload['event']?.toString() ??
+        data['event']?.toString() ??
+        payload['message_data']?['event']?.toString() ??
+        payload['conversation_data']?['event']?.toString();
+
+    if (event == 'message.received') {
+      final msgEvent = MessageReceivedEvent.fromJson(data);
+      if (!_messageReceivedController.isClosed) {
+        _messageReceivedController.add(msgEvent);
+      }
+      return true;
+    } else if (event == 'conversation.updated') {
+      final convEvent = ConversationUpdatedEvent.fromJson(data);
+      if (!_conversationUpdatedController.isClosed) {
+        _conversationUpdatedController.add(convEvent);
+      }
+      return true;
+    }
+    return false;
   }
 
   // ─── REST API ──────────────────────────────────────────────────────
@@ -445,6 +554,233 @@ class FiretellClient {
     }
 
     return PhoneNumbersResponse.fromJson(
+      jsonDecode(response.body) as Map<String, dynamic>,
+    );
+  }
+
+  // ─── Call Center SMS Conversations ─────────────────────────────────
+
+  /// List conversation threads (SMS Inbox) for Call Center agents.
+  ///
+  /// Calls `GET /api/v1/call-center/conversations` using the agent's JWT.
+  Future<ConversationsResponse> getConversations([
+    ListConversationsQuery? query,
+  ]) async {
+    final qs = query?.toQueryParams();
+    final uri = Uri.parse('$_baseUrl${ApiEndpoints.conversations}').replace(
+      queryParameters: qs != null && qs.isNotEmpty ? qs : null,
+    );
+
+    final response = await http.get(
+      uri,
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $_jwt',
+      },
+    );
+
+    if (response.statusCode != 200) {
+      final errData = _tryParseJson(response.body);
+      throw Exception(
+        errData?['message'] ??
+            'HTTP ${response.statusCode}: Failed to fetch conversations',
+      );
+    }
+
+    return ConversationsResponse.fromJson(
+      jsonDecode(response.body) as Map<String, dynamic>,
+    );
+  }
+
+  /// Get details of a single conversation thread.
+  ///
+  /// Calls `GET /api/v1/call-center/conversations/:id` using the agent's JWT.
+  Future<Conversation> getConversation(String conversationId) async {
+    final uri = Uri.parse(
+      '$_baseUrl${ApiEndpoints.conversationDetails(conversationId)}',
+    );
+    final response = await http.get(
+      uri,
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $_jwt',
+      },
+    );
+
+    if (response.statusCode != 200) {
+      final errData = _tryParseJson(response.body);
+      throw Exception(
+        errData?['message'] ??
+            'HTTP ${response.statusCode}: Failed to fetch conversation',
+      );
+    }
+
+    return Conversation.fromJson(
+      jsonDecode(response.body) as Map<String, dynamic>,
+    );
+  }
+
+  /// Start a new conversation thread or send initial outbound SMS to a client.
+  ///
+  /// Calls `POST /api/v1/call-center/conversations` using the agent's JWT.
+  Future<StartConversationResponse> startConversation(
+    StartConversationPayload payload,
+  ) async {
+    final target = payload.clientNumber.isNotEmpty
+        ? payload.clientNumber
+        : (payload.to ?? '');
+    if (target.isEmpty) {
+      throw ArgumentError('clientNumber is required to start a conversation');
+    }
+
+    final uri = Uri.parse('$_baseUrl${ApiEndpoints.conversations}');
+    final response = await http.post(
+      uri,
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $_jwt',
+      },
+      body: jsonEncode(payload.toJson()),
+    );
+
+    if (response.statusCode != 200 && response.statusCode != 201) {
+      final errData = _tryParseJson(response.body);
+      throw Exception(
+        errData?['message'] ??
+            'HTTP ${response.statusCode}: Failed to start conversation',
+      );
+    }
+
+    return StartConversationResponse.fromJson(
+      jsonDecode(response.body) as Map<String, dynamic>,
+    );
+  }
+
+  /// Update conversation thread metadata (assign agent, assign team, status open/closed).
+  ///
+  /// Calls `PATCH /api/v1/call-center/conversations/:id` using the agent's JWT.
+  Future<Conversation> updateConversation(
+    String conversationId,
+    UpdateConversationPayload payload,
+  ) async {
+    final uri = Uri.parse(
+      '$_baseUrl${ApiEndpoints.conversationDetails(conversationId)}',
+    );
+    final response = await http.patch(
+      uri,
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $_jwt',
+      },
+      body: jsonEncode(payload.toJson()),
+    );
+
+    if (response.statusCode != 200) {
+      final errData = _tryParseJson(response.body);
+      throw Exception(
+        errData?['message'] ??
+            'HTTP ${response.statusCode}: Failed to update conversation',
+      );
+    }
+
+    return Conversation.fromJson(
+      jsonDecode(response.body) as Map<String, dynamic>,
+    );
+  }
+
+  /// Mark conversation messages as read by agent.
+  ///
+  /// Calls `PATCH /api/v1/call-center/conversations/:id/read` using the agent's JWT.
+  Future<MarkAsReadResponse> markConversationAsRead(
+    String conversationId,
+  ) async {
+    final uri = Uri.parse(
+      '$_baseUrl${ApiEndpoints.conversationRead(conversationId)}',
+    );
+    final response = await http.patch(
+      uri,
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $_jwt',
+      },
+    );
+
+    if (response.statusCode != 200) {
+      final errData = _tryParseJson(response.body);
+      throw Exception(
+        errData?['message'] ??
+            'HTTP ${response.statusCode}: Failed to mark conversation as read',
+      );
+    }
+
+    return MarkAsReadResponse.fromJson(
+      jsonDecode(response.body) as Map<String, dynamic>,
+    );
+  }
+
+  /// Get message history for a conversation thread in chronological order.
+  ///
+  /// Calls `GET /api/v1/call-center/conversations/:id/messages` using the agent's JWT.
+  Future<ConversationMessagesResponse> getConversationMessages(
+    String conversationId, [
+    ListMessagesQuery? query,
+  ]) async {
+    final qs = query?.toQueryParams();
+    final uri = Uri.parse(
+      '$_baseUrl${ApiEndpoints.conversationMessages(conversationId)}',
+    ).replace(
+      queryParameters: qs != null && qs.isNotEmpty ? qs : null,
+    );
+
+    final response = await http.get(
+      uri,
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $_jwt',
+      },
+    );
+
+    if (response.statusCode != 200) {
+      final errData = _tryParseJson(response.body);
+      throw Exception(
+        errData?['message'] ??
+            'HTTP ${response.statusCode}: Failed to fetch conversation messages',
+      );
+    }
+
+    return ConversationMessagesResponse.fromJson(
+      jsonDecode(response.body) as Map<String, dynamic>,
+    );
+  }
+
+  /// Send SMS/MMS message to client in an existing conversation thread.
+  ///
+  /// Calls `POST /api/v1/call-center/conversations/:id/messages` using the agent's JWT.
+  Future<ConversationMessage> sendConversationMessage(
+    String conversationId,
+    SendConversationMessagePayload payload,
+  ) async {
+    final uri = Uri.parse(
+      '$_baseUrl${ApiEndpoints.conversationMessages(conversationId)}',
+    );
+    final response = await http.post(
+      uri,
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $_jwt',
+      },
+      body: jsonEncode(payload.toJson()),
+    );
+
+    if (response.statusCode != 200 && response.statusCode != 201) {
+      final errData = _tryParseJson(response.body);
+      throw Exception(
+        errData?['message'] ??
+            'HTTP ${response.statusCode}: Failed to send message',
+      );
+    }
+
+    return ConversationMessage.fromJson(
       jsonDecode(response.body) as Map<String, dynamic>,
     );
   }
@@ -656,6 +992,11 @@ class FiretellClient {
     _sessionController.close();
     _errorController.close();
     _connectionStateController.close();
+
+    _messageReceivedController.close();
+    _messageSentController.close();
+    _messageUpdatedController.close();
+    _conversationUpdatedController.close();
   }
 
   // ─── Helpers ───────────────────────────────────────────────────────

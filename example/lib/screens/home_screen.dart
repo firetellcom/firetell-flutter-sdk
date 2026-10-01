@@ -8,7 +8,9 @@ import 'package:flutter_callkit_incoming/flutter_callkit_incoming.dart';
 
 import '../services/push_notification_service.dart';
 import 'call_screen.dart';
+import 'conversations_screen.dart';
 import 'dialpad_screen.dart';
+import 'new_conversation_screen.dart';
 import 'video_call_screen.dart';
 
 /// Home screen — shows connection status, incoming call events, and
@@ -34,6 +36,7 @@ class _HomeScreenState extends State<HomeScreen> {
   StreamSubscription<callkit.CallEvent?>? _callKitEventSub;
   SseConnectionState _connectionState = SseConnectionState.connecting;
   final List<String> _eventLog = [];
+  int _selectedTabIndex = 0;
 
   @override
   void initState() {
@@ -101,6 +104,32 @@ class _HomeScreenState extends State<HomeScreen> {
         FlutterCallkitIncoming.endCall(callId);
       }
     });
+    // 8. Listen to SMS events
+    widget.client.onMessageReceived.listen((event) {
+      _log('SMS from ${event.clientNumber}: ${event.body}');
+      if (_selectedTabIndex != 1 && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('New SMS from ${event.clientNumber}: ${event.body}'),
+            action: SnackBarAction(
+              label: 'View',
+              onPressed: () {
+                setState(() => _selectedTabIndex = 1);
+              },
+            ),
+          ),
+        );
+      }
+    });
+
+    widget.client.onMessageSent.listen((event) {
+      _log('SMS sent to ${event.clientNumber}: ${event.body}');
+    });
+
+    widget.client.onConversationUpdated.listen((event) {
+      _log('Conversation ${event.id} updated: status=${event.status ?? ""}');
+    });
+
   }
 
   @override
@@ -320,7 +349,11 @@ class _HomeScreenState extends State<HomeScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text('Agent: ${widget.session.username}'),
+        title: Text(
+          _selectedTabIndex == 0
+              ? 'Agent: ${widget.session.username}'
+              : 'SMS Conversations',
+        ),
         actions: [
           Padding(
             padding: const EdgeInsets.only(right: 8),
@@ -337,81 +370,122 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ],
       ),
-      body: Column(
+      body: IndexedStack(
+        index: _selectedTabIndex,
         children: [
-          // Status card
-          Card(
-            margin: const EdgeInsets.all(16),
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Row(
-                children: [
-                  Icon(
-                    isConnected ? Icons.cloud_done : Icons.cloud_off,
-                    color: isConnected ? Colors.green : Colors.orange,
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          isConnected ? 'Connected' : 'Connecting...',
-                          style: theme.textTheme.titleMedium,
-                        ),
-                        Text(
-                          widget.session.domain,
-                          style: theme.textTheme.bodySmall,
-                        ),
-                      ],
-                    ),
-                  ),
-                  Text(
-                    '${widget.client.activeCalls.length} active',
-                    style: theme.textTheme.labelLarge,
-                  ),
-                ],
-              ),
-            ),
-          ),
-
-          // Event log
-          Expanded(
-            child: _eventLog.isEmpty
-                ? const Center(
-                    child: Text(
-                      'No events yet.\nMake a call or wait for incoming calls.',
-                      textAlign: TextAlign.center,
-                    ),
-                  )
-                : ListView.builder(
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    itemCount: _eventLog.length,
-                    itemBuilder: (_, i) => Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 2),
-                      child: Text(
-                        _eventLog[i],
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          fontFamily: 'monospace',
+          // Tab 0: Calls & Events
+          Column(
+            children: [
+              // Status card
+              Card(
+                margin: const EdgeInsets.all(16),
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Row(
+                    children: [
+                      Icon(
+                        isConnected ? Icons.cloud_done : Icons.cloud_off,
+                        color: isConnected ? Colors.green : Colors.orange,
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              isConnected ? 'Connected' : 'Connecting...',
+                              style: theme.textTheme.titleMedium,
+                            ),
+                            Text(
+                              widget.session.domain,
+                              style: theme.textTheme.bodySmall,
+                            ),
+                          ],
                         ),
                       ),
-                    ),
+                      Text(
+                        '${widget.client.activeCalls.length} active',
+                        style: theme.textTheme.labelLarge,
+                      ),
+                    ],
                   ),
+                ),
+              ),
+
+              // Event log
+              Expanded(
+                child: _eventLog.isEmpty
+                    ? const Center(
+                        child: Text(
+                          'No events yet.\nMake a call, send an SMS, or wait for events.',
+                          textAlign: TextAlign.center,
+                        ),
+                      )
+                    : ListView.builder(
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        itemCount: _eventLog.length,
+                        itemBuilder: (_, i) => Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 2),
+                          child: Text(
+                            _eventLog[i],
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              fontFamily: 'monospace',
+                            ),
+                          ),
+                        ),
+                      ),
+              ),
+            ],
+          ),
+
+          // Tab 1: SMS Inbox
+          ConversationsScreen(
+            client: widget.client,
+            embedded: true,
           ),
         ],
       ),
-
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () {
-          Navigator.of(context).push(
-            MaterialPageRoute(
-              builder: (_) => DialpadScreen(client: widget.client),
-            ),
-          );
+      bottomNavigationBar: NavigationBar(
+        selectedIndex: _selectedTabIndex,
+        onDestinationSelected: (index) {
+          setState(() => _selectedTabIndex = index);
         },
-        icon: const Icon(Icons.dialpad),
-        label: const Text('Dial'),
+        destinations: const [
+          NavigationDestination(
+            icon: Icon(Icons.phone_in_talk_outlined),
+            selectedIcon: Icon(Icons.phone_in_talk),
+            label: 'Calls & Logs',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.chat_outlined),
+            selectedIcon: Icon(Icons.chat),
+            label: 'SMS Inbox',
+          ),
+        ],
       ),
+      floatingActionButton: _selectedTabIndex == 0
+          ? FloatingActionButton.extended(
+              onPressed: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => DialpadScreen(client: widget.client),
+                  ),
+                );
+              },
+              icon: const Icon(Icons.dialpad),
+              label: const Text('Dial'),
+            )
+          : FloatingActionButton.extended(
+              onPressed: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => NewConversationScreen(client: widget.client),
+                  ),
+                );
+              },
+              icon: const Icon(Icons.add_comment),
+              label: const Text('New SMS'),
+            ),
     );
   }
 }
