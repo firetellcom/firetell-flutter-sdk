@@ -5,3 +5,4 @@ export 'make_call_response.dart';
 export 'jwt_payload.dart';
 export 'ws_message.dart';
 export 'phone_number.dart';
+export 'conversation.dart';

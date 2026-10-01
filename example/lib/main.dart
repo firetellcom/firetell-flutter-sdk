@@ -26,6 +26,10 @@ Future<void> _firebaseBackgroundMessageHandler(RemoteMessage message) async {
     if (callId != null) {
       await PushNotificationService.dismissCallFromPush(callId);
     }
+  } else if (event == 'message.received') {
+    debugPrint('FCM background message.received: ${message.data}');
+  } else if (event == 'conversation.updated') {
+    debugPrint('FCM background conversation.updated: ${message.data}');
   }
 }
 

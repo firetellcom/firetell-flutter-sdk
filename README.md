@@ -12,7 +12,8 @@ A Flutter SDK for building VoIP-enabled mobile applications with the [Firetell](
 - **Call Controls** — Mute, speakerphone (loudspeaker/earpiece), camera toggle, switch camera, hold/unhold, DTMF, transfer
 - **VoIP Push** — FCM (Android) and APNs VoIP (iOS) push notification support
 - **Full ICE** — Complete ICE candidate gathering before SDP exchange
-- **Real-time Events** — SSE stream for workspace events (agent state, call ring, etc.)
+- **Call Center SMS Conversations** — 2-way SMS/MMS messaging, shared team inbox, conversation threads, unread counters, and real-time messaging events
+- **Real-time Events** — SSE stream for workspace events (agent state, call ring, SMS messages, etc.)
 
 ## Installation
 
@@ -20,7 +21,7 @@ Add to your `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  firetell_flutter_sdk: ^1.1.1
+  firetell_flutter_sdk: ^1.1.2
 ```
 
 ## Quick Start
@@ -156,6 +157,85 @@ await call.transfer('+1987654321', reason: 'Customer request');
 
 // Hang up
 await call.hangup();
+```
+
+
+## Call Center SMS Conversations
+
+Manage 2-way SMS/MMS conversations with customers directly in mobile apps with shared inbox, thread assignments, delivery status, and real-time push synchronization.
+
+### 1. List Conversations (Shared Inbox)
+
+```dart
+final response = await client.getConversations(
+  query: ListConversationsQuery(
+    status: 'open',
+    limit: 20,
+  ),
+);
+
+for (final conv in response.data) {
+  print('${conv.clientNumber}: ${conv.lastMessage?.body} (${conv.unreadCount} unread)');
+}
+```
+
+### 2. Start a Conversation
+
+```dart
+final result = await client.startConversation(
+  StartConversationPayload(
+    from: '+13074295456',          // Workspace DID / Sender number
+    clientNumber: '+18647123123',  // Customer phone number
+    body: 'Hello! How can we assist you today?',
+  ),
+);
+print('Conversation ID: ${result.conversation.id}');
+```
+
+### 3. Send a Reply in a Thread
+
+```dart
+final message = await client.sendConversationMessage(
+  conversationId,
+  SendConversationMessagePayload(
+    body: 'We have received your request and are reviewing it.',
+    mediaUrls: ['https://example.com/invoice.pdf'], // Optional MMS attachments
+  ),
+);
+print('Message sent: ${message.id}');
+```
+
+### 4. Real-time Messaging Events & Push Notifications
+
+Listen to live SSE stream events in the foreground:
+
+```dart
+// Inbound SMS received from customer
+client.onMessageReceived.listen((event) {
+  print('Inbound SMS from ${event.clientNumber}: ${event.body}');
+});
+
+// Outbound SMS sent by another agent (prevents collision)
+client.onMessageSent.listen((event) {
+  print('SMS sent by agent: ${event.message.body}');
+});
+
+// Carrier delivery status update
+client.onMessageUpdated.listen((event) {
+  print('Message ${event.messageId} status: ${event.status}');
+});
+
+// Thread assignment or status update
+client.onConversationUpdated.listen((event) {
+  print('Conversation ${event.id} updated: status=${event.status}');
+});
+```
+
+When receiving background push notifications (FCM or APNs) in Flutter:
+
+```dart
+// Pass background/foreground push payload to the SDK
+client.handlePushEvent(pushData);
 ```
 
 ## Call State Machine

@@ -66,6 +66,12 @@ class PhoneNumber {
   /// Created timestamp.
   final DateTime? createdAt;
 
+  /// Whether this phone number can send outbound SMS.
+  bool get canSendSms => enableOutbound && (capabilities?.sms ?? false);
+
+  /// Whether this phone number can make outbound voice calls.
+  bool get canMakeVoiceCall => enableOutbound && (capabilities?.voice ?? true);
+
   /// Formatted display label (e.g. "+14155552671 (Support US)").
   String get displayLabel {
     if (title != null && title!.isNotEmpty) {

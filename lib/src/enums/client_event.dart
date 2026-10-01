@@ -35,4 +35,16 @@ enum ClientEvent {
 
   /// SSE connection state changed.
   connectionState,
+
+  /// Inbound SMS/MMS message received from client.
+  messageReceived,
+
+  /// Outbound SMS/MMS message sent by an agent in workspace.
+  messageSent,
+
+  /// Message delivery status updated (queued, sent, delivered, failed).
+  messageUpdated,
+
+  /// Conversation thread updated (status, assignment, unread count).
+  conversationUpdated,
 }
