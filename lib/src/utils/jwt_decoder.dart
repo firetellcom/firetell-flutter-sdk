@@ -31,4 +31,27 @@ class JwtDecoder {
       return null;
     }
   }
+
+  /// Whether [token]'s `exp` claim is in the past (with [skew] tolerance).
+  ///
+  /// Returns `false` if the token has no readable `exp` claim. Does not
+  /// require `sub`/`domain`, so it also works for `call_token`s.
+  static bool isExpired(
+    String token, {
+    Duration skew = const Duration(seconds: 30),
+  }) {
+    try {
+      final parts = token.split('.');
+      if (parts.length < 2) return false;
+      final json = jsonDecode(
+        utf8.decode(base64Url.decode(base64Url.normalize(parts[1]))),
+      );
+      final exp = json is Map ? json['exp'] : null;
+      if (exp is! num) return false;
+      final nowSec = DateTime.now().millisecondsSinceEpoch / 1000;
+      return nowSec >= exp - skew.inSeconds;
+    } catch (_) {
+      return false;
+    }
+  }
 }

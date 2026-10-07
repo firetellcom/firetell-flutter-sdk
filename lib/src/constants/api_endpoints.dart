@@ -8,6 +8,9 @@ class ApiEndpoints {
   /// Workspace metadata (ws_servers, ice_servers).
   static const workspaceMetadata = '/api/v1';
 
+  /// Fresh ICE servers / TURN credentials (ice_servers, ice_servers_ttl).
+  static const iceServers = '/api/v1/ice-servers';
+
   /// Agent login (username/password → JWT).
   static const authLogin = '/api/v1/auth/login';
 

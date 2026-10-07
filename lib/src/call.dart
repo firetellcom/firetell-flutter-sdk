@@ -8,9 +8,17 @@ import 'package:web_socket_channel/web_socket_channel.dart';
 
 import 'constants/api_endpoints.dart';
 import 'constants/ice_servers.dart';
+import 'constants/signaling.dart';
 import 'enums/call_state.dart';
+import 'enums/signaling_status.dart';
 import 'models/call_options.dart';
 import 'models/ws_message.dart';
+import 'utils/jwt_decoder.dart';
+
+/// Resolves the ICE servers to use right before a peer connection is created
+/// (e.g. `FiretellClient.ensureIceServers`, which refreshes expiring TURN
+/// credentials).
+typedef IceServersProvider = Future<List<Map<String, dynamic>>> Function();
 
 /// Represents a single VoIP call session with dedicated WebSocket signaling
 /// and WebRTC peer connection.
@@ -26,8 +34,18 @@ class Call {
   /// Create a new Call instance.
   ///
   /// Typically called internally by [FiretellClient], not by consumers directly.
+  ///
+  /// [iceServersProvider] — optional; awaited right before the
+  /// `RTCPeerConnection` is created so TURN credentials are fresh. Falls back
+  /// to [iceServers] if it fails or returns an empty list.
+  ///
+  /// [fallbackTokenProvider] — optional; returns the agent JWT used for
+  /// `session.connect` when the signaling WebSocket is resumed after the
+  /// `call_token` has expired.
   Call({
     required this.iceServers,
+    this.iceServersProvider,
+    this.fallbackTokenProvider,
     CallOptions options = const CallOptions(),
   })  : to = options.to,
         from = options.from,
@@ -79,7 +97,16 @@ class Call {
   RTCSessionDescription? remoteDescription;
 
   /// ICE servers configuration for the peer connection.
-  final List<Map<String, dynamic>> iceServers;
+  ///
+  /// Updated with the result of [iceServersProvider] when media is set up.
+  List<Map<String, dynamic>> iceServers;
+
+  /// Optional async source of fresh ICE servers (see [IceServersProvider]).
+  final IceServersProvider? iceServersProvider;
+
+  /// Optional source of the agent JWT, used as `call_token` fallback when
+  /// resuming signaling after the original `call_token` expired.
+  final String? Function()? fallbackTokenProvider;
 
   // ─── Event Streams ─────────────────────────────────────────────────
 
@@ -93,6 +120,8 @@ class Call {
   final _cameraController = StreamController<bool>.broadcast();
   final _speakerController = StreamController<bool>.broadcast();
   final _mediaStateController = StreamController<String>.broadcast();
+  final _signalingController = StreamController<
+      ({SignalingStatus status, int attempt, int? closeCode})>.broadcast();
 
   /// Stream of call state changes.
   Stream<({CallState state, String? reason, Map<String, dynamic>? data})>
@@ -116,6 +145,17 @@ class Call {
   /// Stream of ICE connection state changes.
   Stream<String> get onMediaState => _mediaStateController.stream;
 
+  /// Stream of signaling WebSocket keep-alive / reconnect status.
+  ///
+  /// Emits [SignalingStatus.reconnecting] (with attempt number and the close
+  /// code that triggered it), [SignalingStatus.reconnected] or
+  /// [SignalingStatus.failed] (the call is then ended).
+  Stream<({SignalingStatus status, int attempt, int? closeCode})>
+      get onSignaling => _signalingController.stream;
+
+  /// Whether the signaling WebSocket is currently reconnecting.
+  bool get isReconnecting => _reconnecting;
+
   // ─── Private State ─────────────────────────────────────────────────
 
   CallState _state = CallState.none;
@@ -125,9 +165,19 @@ class Call {
   MediaStream? _localStream;
   MediaStream? _remoteStream;
   bool _destroying = false;
-  Completer<void>? _connectCompleter;
-  Timer? _authTimeout;
   String? _currentRemoteSetupRole;
+
+  // Signaling connection state (keep-alive / reconnect)
+  String? _wsUrl;
+  String? _callToken;
+  bool _signalingReady = false;
+  bool _reconnecting = false;
+  int _reconnectAttempt = 0;
+  DateTime _reconnectStartedAt = DateTime.fromMillisecondsSinceEpoch(0);
+  Timer? _reconnectTimer;
+  Timer? _pingTimer;
+  DateTime _lastWsMessageAt = DateTime.fromMillisecondsSinceEpoch(0);
+  final List<WsEventMessage> _wsOutbox = [];
 
   /// Current call state.
   CallState get callState => _state;
@@ -145,75 +195,287 @@ class Call {
 
   /// Open dedicated native WebSocket signaling connection for this call
   /// session and authenticate with `call_token` within 3 seconds.
+  ///
+  /// The connection is kept alive with periodic `session.ping` and is
+  /// automatically reconnected (resuming the same call via
+  /// `session.connect {call_token, call_id, reconnect: true}`) if it drops
+  /// unexpectedly. See [onSignaling].
   Future<void> connectSignaling(String wsUrl, String callToken) async {
-    _connectCompleter = Completer<void>();
-
-    try {
-      _wsChannel = WebSocketChannel.connect(Uri.parse(wsUrl));
-      await _wsChannel!.ready;
-
-      // Must authenticate within 3 seconds
-      _authTimeout = Timer(const Duration(seconds: 3), () {
-        if (_connectCompleter != null && !_connectCompleter!.isCompleted) {
-          _wsChannel?.sink.close();
-          _wsChannel = null;
-          _connectCompleter!.completeError(
-            TimeoutException(
-              'Call WebSocket authentication timed out after 3s',
-            ),
-          );
-        }
-      });
-
-      // Listen for WS messages
-      _wsSubscription = _wsChannel!.stream.listen(
-        (dynamic message) {
-          try {
-            final json = jsonDecode(message as String) as Map<String, dynamic>;
-            final msg = WsEventMessage.fromJson(json);
-            _handleWsMessage(msg);
-          } catch (e) {
-            developer.log(
-              'Call.connectSignaling: JSON parse error: $e',
-              name: 'FiretellSDK',
-            );
-          }
-        },
-        onDone: () {
-          _authTimeout?.cancel();
-          _wsChannel = null;
-          if (active && !_destroying) {
-            destroy(sendHangup: false);
-          }
-        },
-        onError: (Object error) {
-          _authTimeout?.cancel();
-          _emitState(CallState.error, reason: 'WebSocket error');
-          if (_connectCompleter != null && !_connectCompleter!.isCompleted) {
-            _connectCompleter!.completeError(error);
-          }
-        },
-      );
-
-      // Send session.connect handshake
-      sendWsEvent('session.connect', {'call_token': callToken});
-
-      return await _connectCompleter!.future;
-    } catch (e) {
-      _authTimeout?.cancel();
-      if (_connectCompleter != null && !_connectCompleter!.isCompleted) {
-        _connectCompleter!.completeError(e);
-      }
-      rethrow;
-    }
+    _wsUrl = wsUrl;
+    _callToken = callToken;
+    await _openSignalingSocket(isReconnect: false);
   }
 
   /// Send a JSON event message over this call's WebSocket.
+  ///
+  /// While signaling is reconnecting, events are queued (up to 50) and
+  /// flushed after the session is resumed.
   void sendWsEvent(String event, [Map<String, dynamic>? data]) {
-    if (_wsChannel != null) {
-      _wsChannel!.sink.add(jsonEncode(
-        WsEventMessage(event: event, data: data ?? {}).toJson(),
-      ));
+    final msg = WsEventMessage(event: event, data: data ?? {});
+    final channel = _wsChannel;
+    if (channel != null && _signalingReady) {
+      channel.sink.add(jsonEncode(msg.toJson()));
+      return;
+    }
+    if (_reconnecting && _wsOutbox.length < SignalingConfig.outboxLimit) {
+      _wsOutbox.add(msg);
+    }
+  }
+
+  /// Open a signaling socket and complete once `session.connected` arrives.
+  Future<void> _openSignalingSocket({required bool isReconnect}) async {
+    final url = _wsUrl;
+    if (url == null) throw StateError('Missing signaling ws_url');
+
+    final completer = Completer<void>();
+    final channel = WebSocketChannel.connect(Uri.parse(url));
+    _wsChannel = channel;
+    Timer? authTimer;
+
+    void fail(Object error) {
+      authTimer?.cancel();
+      if (!completer.isCompleted) completer.completeError(error);
+    }
+
+    void startAuthTimer() {
+      authTimer ??= Timer(SignalingConfig.authTimeout, () {
+        if (completer.isCompleted) return;
+        _detachChannel(channel);
+        fail(TimeoutException(
+          'Call WebSocket authentication timed out after '
+          '${SignalingConfig.authTimeout.inSeconds}s',
+        ));
+      });
+    }
+
+    // Reconnect attempts include the TCP/TLS handshake in the auth window so
+    // a dead network cannot stall the reconnect loop.
+    if (isReconnect) startAuthTimer();
+
+    _wsSubscription = channel.stream.listen(
+      (dynamic message) {
+        if (!identical(_wsChannel, channel)) return;
+        _lastWsMessageAt = DateTime.now();
+        final WsEventMessage msg;
+        try {
+          msg = WsEventMessage.fromJson(
+            jsonDecode(message as String) as Map<String, dynamic>,
+          );
+        } catch (e) {
+          developer.log(
+            'Call.connectSignaling: JSON parse error: $e',
+            name: 'FiretellSDK',
+          );
+          return;
+        }
+
+        if (msg.event == 'session.connected') {
+          authTimer?.cancel();
+          _signalingReady = true;
+          _startWsPing();
+          _flushWsOutbox();
+          if (!completer.isCompleted) completer.complete();
+          return;
+        }
+
+        if (msg.event == 'session.error' && _reconnecting && !_signalingReady) {
+          // Failed reconnect attempt: let the retry loop handle it without
+          // surfacing a call error.
+          developer.log(
+            'Call: session.error during reconnect: ${msg.data}',
+            name: 'FiretellSDK',
+          );
+          _detachChannel(channel);
+          fail(StateError('session.error during reconnect'));
+          return;
+        }
+
+        _handleWsMessage(msg);
+      },
+      onError: (Object error) {
+        if (!identical(_wsChannel, channel)) return;
+        // Only surface as a call error for the initial connection; drops
+        // mid-call are handled by reconnect.
+        if (!isReconnect && !_signalingReady) {
+          _emitState(CallState.error, reason: 'WebSocket error');
+        }
+        fail(error);
+      },
+      onDone: () {
+        fail(StateError('Call WebSocket closed (code=${channel.closeCode})'));
+        if (!identical(_wsChannel, channel)) return; // superseded / detached
+        _wsChannel = null;
+        _wsSubscription = null;
+        _handleSignalingClose(channel.closeCode ?? 1006);
+      },
+    );
+
+    try {
+      await channel.ready;
+    } catch (e) {
+      if (identical(_wsChannel, channel)) _detachChannel(channel);
+      fail(e);
+      return completer.future;
+    }
+
+    if (!identical(_wsChannel, channel) || completer.isCompleted) {
+      return completer.future;
+    }
+
+    startAuthTimer();
+    // session.connect bypasses the outbox / ready check.
+    channel.sink.add(jsonEncode(WsEventMessage(
+      event: 'session.connect',
+      data: _buildSessionConnectData(isReconnect: isReconnect),
+    ).toJson()));
+
+    return completer.future;
+  }
+
+  /// Build `session.connect` payload. On reconnect, include `call_id` so the
+  /// server resumes the existing session, and fall back to the agent JWT if
+  /// the `call_token` has expired.
+  Map<String, dynamic> _buildSessionConnectData({required bool isReconnect}) {
+    var token = _callToken;
+    if (isReconnect && token != null && JwtDecoder.isExpired(token)) {
+      final fallback = fallbackTokenProvider?.call();
+      if (fallback != null && fallback.isNotEmpty) token = fallback;
+    }
+    return {
+      'call_token': token,
+      if (isReconnect && callId != null) 'call_id': callId,
+      if (isReconnect) 'reconnect': true,
+    };
+  }
+
+  void _handleSignalingClose(int code) {
+    _stopWsPing();
+    final wasReady = _signalingReady;
+    _signalingReady = false;
+
+    if (_destroying) return;
+    // A reconnect attempt failed: the attempt loop schedules the next try.
+    if (_reconnecting) return;
+
+    if (wasReady && _shouldReconnect(code)) {
+      _beginReconnect(code);
+      return;
+    }
+
+    if (active) destroy(sendHangup: false);
+  }
+
+  bool _shouldReconnect(int code) {
+    // 1000 / 1005: intentional close (server ended or transferred the session)
+    if (code == 1000 || code == 1005) return false;
+    if (_state == CallState.ended || _state == CallState.error) return false;
+    return _wsUrl != null && _callToken != null && callId != null;
+  }
+
+  void _beginReconnect(int code) {
+    _reconnecting = true;
+    _reconnectAttempt = 0;
+    _reconnectStartedAt = DateTime.now();
+    _scheduleReconnectAttempt(code);
+  }
+
+  void _scheduleReconnectAttempt([int? code]) {
+    if (_destroying) return;
+
+    final elapsed = DateTime.now().difference(_reconnectStartedAt);
+    final remaining = SignalingConfig.reconnectWindow - elapsed;
+    if (remaining <= Duration.zero) {
+      _failReconnect();
+      return;
+    }
+
+    var delay = SignalingConfig.reconnectBaseDelay * (1 << _reconnectAttempt);
+    if (delay > SignalingConfig.reconnectMaxDelay) {
+      delay = SignalingConfig.reconnectMaxDelay;
+    }
+    if (delay > remaining) delay = remaining;
+
+    _reconnectAttempt++;
+    _emitSignaling(SignalingStatus.reconnecting, closeCode: code);
+
+    _reconnectTimer = Timer(delay, () {
+      _reconnectTimer = null;
+      if (_destroying) return;
+      _openSignalingSocket(isReconnect: true).then((_) {
+        if (_destroying) return;
+        _reconnecting = false;
+        _emitSignaling(SignalingStatus.reconnected);
+        _reconnectAttempt = 0;
+      }, onError: (Object _) {
+        _scheduleReconnectAttempt();
+      });
+    });
+  }
+
+  void _failReconnect() {
+    _reconnecting = false;
+    _wsOutbox.clear();
+    _emitSignaling(SignalingStatus.failed);
+    _state = CallState.ended;
+    _emitState(CallState.ended, reason: 'Signaling connection lost');
+    destroy(sendHangup: false);
+  }
+
+  void _flushWsOutbox() {
+    if (_wsOutbox.isEmpty) return;
+    final queued = List<WsEventMessage>.of(_wsOutbox);
+    _wsOutbox.clear();
+    for (final msg in queued) {
+      sendWsEvent(msg.event, msg.data);
+    }
+  }
+
+  /// Periodic app-level ping (server replies `session.pong`). Also detects
+  /// half-open connections: no inbound message for 60s => reconnect.
+  void _startWsPing() {
+    _stopWsPing();
+    _lastWsMessageAt = DateTime.now();
+    _pingTimer = Timer.periodic(SignalingConfig.pingInterval, (_) {
+      final channel = _wsChannel;
+      if (channel == null) return;
+      if (DateTime.now().difference(_lastWsMessageAt) >
+          SignalingConfig.idleTimeout) {
+        developer.log(
+          'Call[$callId] signaling idle timeout, reconnecting',
+          name: 'FiretellSDK',
+        );
+        _detachChannel(channel);
+        _handleSignalingClose(SignalingConfig.closeDeadConnection);
+        return;
+      }
+      sendWsEvent('session.ping', {});
+    });
+  }
+
+  void _stopWsPing() {
+    _pingTimer?.cancel();
+    _pingTimer = null;
+  }
+
+  /// Stop listening to and close a socket without triggering close handling.
+  void _detachChannel(WebSocketChannel channel, [int? closeCode]) {
+    if (identical(_wsChannel, channel)) {
+      _wsSubscription?.cancel();
+      _wsSubscription = null;
+      _wsChannel = null;
+    }
+    try {
+      channel.sink.close(closeCode);
+    } catch (_) {
+      // Ignore WS close errors during cleanup
+    }
+  }
+
+  void _emitSignaling(SignalingStatus status, {int? closeCode}) {
+    if (!_signalingController.isClosed) {
+      _signalingController.add(
+        (status: status, attempt: _reconnectAttempt, closeCode: closeCode),
+      );
     }
   }
 
@@ -223,11 +485,9 @@ class Call {
     final data = msg.data;
 
     switch (msg.event) {
-      case 'session.connected':
-        _authTimeout?.cancel();
-        if (_connectCompleter != null && !_connectCompleter!.isCompleted) {
-          _connectCompleter!.complete();
-        }
+      case 'session.pong':
+        // Keep-alive reply; activity timestamp already updated.
+        break;
 
       case 'session.error':
         developer.log(
@@ -644,18 +904,18 @@ class Call {
     }
     active = false;
 
-    // Close dedicated call WebSocket
-    _wsSubscription?.cancel();
-    _wsSubscription = null;
-    try {
-      _wsChannel?.sink.close();
-    } catch (_) {
-      // Ignore WS close errors during cleanup
-    }
-    _wsChannel = null;
+    // Stop keep-alive / reconnect machinery
+    _stopWsPing();
+    _reconnectTimer?.cancel();
+    _reconnectTimer = null;
+    _reconnecting = false;
+    _signalingReady = false;
+    _wsOutbox.clear();
 
-    _authTimeout?.cancel();
-    _authTimeout = null;
+    // Close dedicated call WebSocket (1000 = intentional, server cleans up
+    // immediately instead of waiting for the reconnect grace period)
+    final channel = _wsChannel;
+    if (channel != null) _detachChannel(channel, 1000);
 
     _cleanupPeerConnection();
 
@@ -672,6 +932,7 @@ class Call {
     _cameraController.close();
     _speakerController.close();
     _mediaStateController.close();
+    _signalingController.close();
   }
 
   // ─── WebRTC Internals ──────────────────────────────────────────────
@@ -726,6 +987,9 @@ class Call {
     required bool audio,
     bool video = false,
   }) async {
+    // Make sure TURN credentials are fresh before creating the peer connection
+    await _resolveIceServers();
+
     _cleanupPeerConnection();
 
     final iceConfig = iceServers.isNotEmpty
@@ -788,6 +1052,22 @@ class Call {
         init: RTCRtpTransceiverInit(
           direction: TransceiverDirection.RecvOnly,
         ),
+      );
+    }
+  }
+
+  /// Resolve ICE servers from [iceServersProvider] (if any). Never throws;
+  /// keeps the current [iceServers] on failure.
+  Future<void> _resolveIceServers() async {
+    final provider = iceServersProvider;
+    if (provider == null) return;
+    try {
+      final servers = await provider();
+      if (servers.isNotEmpty) iceServers = servers;
+    } catch (e) {
+      developer.log(
+        'Call: failed to resolve ICE servers, using cached: $e',
+        name: 'FiretellSDK',
       );
     }
   }

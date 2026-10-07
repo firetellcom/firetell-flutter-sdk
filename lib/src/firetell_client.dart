@@ -71,7 +71,17 @@ class FiretellClient {
   final Map<String, Call> activeCalls = {};
 
   /// ICE servers from workspace metadata (or defaults).
+  ///
+  /// May contain short-lived TURN credentials; use [ensureIceServers] to get
+  /// a list that is guaranteed fresh (the SDK does this before every call).
   List<Map<String, dynamic>> iceServers = List.from(defaultIceServers);
+
+  /// Local time at which the current TURN credentials expire, or `null` if
+  /// the ICE servers do not expire (no TURN configured).
+  ///
+  /// Computed as `now + ice_servers_ttl` using the device clock (the server's
+  /// `ice_servers_expires_at` is ignored to avoid clock-skew issues).
+  DateTime? get iceServersExpiresAt => _iceServersExpiresAt;
 
   /// Whether the SSE stream is currently connected.
   bool get isConnected => _connected;
@@ -192,6 +202,9 @@ class FiretellClient {
   SseStreamClient? _sseClient;
   StreamSubscription<SseEvent>? _sseSub;
   StreamSubscription<SseConnectionState>? _sseStateSub;
+  DateTime? _iceServersExpiresAt;
+  Future<bool>? _iceRefreshFuture;
+  bool _metadataLoaded = false;
 
   // ─── Initialization ────────────────────────────────────────────────
 
@@ -223,14 +236,8 @@ class FiretellClient {
               .toList() ??
           [];
 
-      final rawIce = data['ice_servers'] as List<dynamic>?;
-      if (rawIce != null && rawIce.isNotEmpty) {
-        iceServers = rawIce
-            .map((e) => Map<String, dynamic>.from(e as Map))
-            .toList();
-        // Cache for cold-start push-to-call flow
-        IceServerCache.save(iceServers);
-      }
+      _applyIceServers(data);
+      _metadataLoaded = true;
 
       // Start SSE event stream
       _initEventStream();
@@ -254,6 +261,98 @@ class FiretellClient {
       _readyCompleter.completeError(
         e is Exception ? e : Exception('Failed to fetch workspace metadata'),
       );
+    }
+  }
+
+  // ─── ICE Servers / TURN Credentials ────────────────────────────────
+
+  /// Store ICE servers and compute their local expiry from the server-provided
+  /// TTL (TTL-based, so it is not affected by device clock skew).
+  void _applyIceServers(Map<String, dynamic> data) {
+    final rawIce = data['ice_servers'];
+    iceServers = rawIce is List && rawIce.isNotEmpty
+        ? rawIce.map((e) => Map<String, dynamic>.from(e as Map)).toList()
+        : List.from(defaultIceServers);
+
+    final rawTtl = data['ice_servers_ttl'];
+    final ttl = rawTtl is num ? rawTtl : num.tryParse('${rawTtl ?? ''}');
+    _iceServersExpiresAt = ttl != null && ttl > 0
+        ? DateTime.now().add(Duration(milliseconds: (ttl * 1000).round()))
+        : null;
+
+    // Cache for cold-start push-to-call flow
+    unawaited(
+      IceServerCache.save(iceServers, expiresAt: _iceServersExpiresAt)
+          .catchError((Object _) {}),
+    );
+  }
+
+  /// Ensure ICE servers (TURN credentials) stay valid for at least
+  /// [minValidity] (default 6h), refreshing from the server when needed.
+  ///
+  /// Never throws: on failure the cached servers are returned (STUN keeps
+  /// working even if TURN credentials expired). Called automatically before
+  /// each call's `RTCPeerConnection` is created, and prefetched (without
+  /// awaiting) when an incoming call rings.
+  Future<List<Map<String, dynamic>>> ensureIceServers({
+    Duration minValidity = iceRefreshThreshold,
+  }) async {
+    // Workspace metadata (initial ICE servers) still loading: wait for it
+    // briefly instead of issuing a duplicate request.
+    if (!_metadataLoaded && !_readyCompleter.isCompleted) {
+      try {
+        await ready.timeout(iceRefreshTimeout);
+      } catch (_) {
+        // Fall through with whatever is cached.
+      }
+    }
+
+    final expiresAt = _iceServersExpiresAt;
+    if (expiresAt == null ||
+        expiresAt.difference(DateTime.now()) > minValidity) {
+      return iceServers;
+    }
+    await refreshIceServers();
+    return iceServers;
+  }
+
+  /// Fetch fresh ICE servers (TURN credentials) from
+  /// `GET /api/v1/ice-servers`.
+  ///
+  /// Concurrent calls share the same in-flight request. Times out after 3s.
+  /// Never throws; returns `true` if the servers were refreshed, `false` on
+  /// failure (cached servers are kept).
+  Future<bool> refreshIceServers() {
+    return _iceRefreshFuture ??= _fetchIceServers().whenComplete(() {
+      _iceRefreshFuture = null;
+    });
+  }
+
+  Future<bool> _fetchIceServers() async {
+    if (_jwt.isEmpty) return false;
+    final httpClient = http.Client();
+    try {
+      final uri = Uri.parse('$_baseUrl${ApiEndpoints.iceServers}');
+      final response = await httpClient.get(uri, headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $_jwt',
+      }).timeout(iceRefreshTimeout);
+
+      if (response.statusCode != 200) {
+        throw Exception('HTTP ${response.statusCode}: ${response.body}');
+      }
+
+      _applyIceServers(jsonDecode(response.body) as Map<String, dynamic>);
+      return true;
+    } catch (e) {
+      developer.log(
+        'FiretellClient: ICE servers refresh failed, using cached servers: $e',
+        name: 'FiretellSDK',
+      );
+      return false;
+    } finally {
+      // Closing the client also aborts the request on timeout.
+      httpClient.close();
     }
   }
 
@@ -284,6 +383,8 @@ class FiretellClient {
 
     switch (event) {
       case 'call.ring':
+        // Refresh TURN credentials in parallel with ringing so accept() is fast
+        unawaited(ensureIceServers());
         final ringParams = CallRingParams(
           callId: _extractCallId(data),
           callToken: data['call_token'] as String? ?? '',
@@ -795,7 +896,12 @@ class FiretellClient {
     required String callId,
     CallOptions options = const CallOptions(),
   }) async {
-    final call = Call(iceServers: iceServers, options: options);
+    final call = Call(
+      iceServers: iceServers,
+      iceServersProvider: ensureIceServers,
+      fallbackTokenProvider: _fallbackToken,
+      options: options,
+    );
     call.callId = callId;
     activeCalls[callId] = call;
     await call.connectSignaling(wsUrl, callToken);
@@ -816,6 +922,8 @@ class FiretellClient {
   }) async {
     final call = Call(
       iceServers: iceServers,
+      iceServersProvider: ensureIceServers,
+      fallbackTokenProvider: _fallbackToken,
       options: CallOptions(
         to: to,
         from: from ?? '',
@@ -857,6 +965,9 @@ class FiretellClient {
   /// await call.accept();
   /// ```
   Future<Call> handlePushIncomingCall(CallRingParams params) async {
+    // Refresh TURN credentials in parallel (no-op if still valid / in flight)
+    unawaited(ensureIceServers());
+
     final wsUrl = params.wsUrl ??
         (_wsServers.isNotEmpty
             ? _wsServers[0]
@@ -1000,6 +1111,10 @@ class FiretellClient {
   }
 
   // ─── Helpers ───────────────────────────────────────────────────────
+
+  /// Agent JWT used by [Call] when resuming signaling with an expired
+  /// `call_token`.
+  String? _fallbackToken() => _jwt.isEmpty ? null : _jwt;
 
   String _extractCallId(Map<String, dynamic> data) {
     return data['data']?['call_id']?.toString() ??
