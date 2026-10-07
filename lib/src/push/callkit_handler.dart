@@ -93,6 +93,10 @@ class CallKitHandler {
   /// all internal operations (WebSocket, HTTP reject) continue using
   /// the server call ID.
   Future<void> showIncomingCall(CallRingParams params) async {
+    // Refresh TURN credentials in parallel while the native UI is ringing
+    // (no-op if still valid; never throws).
+    unawaited(client.ensureIceServers());
+
     // Store pending call by server call ID (used by WS / HTTP operations).
     _pendingCalls[params.callId] = params;
 

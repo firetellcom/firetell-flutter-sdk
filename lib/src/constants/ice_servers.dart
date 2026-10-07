@@ -13,3 +13,10 @@ const List<Map<String, List<String>>> defaultIceServers = [
     'urls': ['stun:stun.cloudflare.com:3478'],
   },
 ];
+
+/// Refresh TURN credentials when they are valid for less than this
+/// (covers a long call started right before expiry).
+const iceRefreshThreshold = Duration(hours: 6);
+
+/// Max wait for the ICE servers refresh request before falling back to cache.
+const iceRefreshTimeout = Duration(seconds: 3);

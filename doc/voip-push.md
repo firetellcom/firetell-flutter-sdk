@@ -344,6 +344,22 @@ await IceServerCache.save(myServers);        // manual cache
 await IceServerCache.clear();                // on logout
 ```
 
+### TURN Credential Refresh
+
+TURN credentials are short-lived (`ice_servers_ttl` seconds). The SDK tracks a local expiry (`now + ttl`, device clock) and refreshes from `GET /api/v1/ice-servers` when credentials are valid for less than 6 hours:
+
+- Before every `RTCPeerConnection` is created (`makeOutboundCall()`, `call.accept()`), the SDK awaits `client.ensureIceServers()`.
+- On `call.ring` (SSE), `handlePushIncomingCall()` and `CallKitHandler.showIncomingCall()`, the refresh starts in the background while the phone is ringing.
+- Failures/timeouts (3s) never throw — cached servers (or STUN) are used.
+- `IceServerCache.load()` drops expired TURN entries, so cold-start calls fall back to STUN instead of dead credentials.
+
+If you show the native UI yourself (without `CallKitHandler`), prefetch in your push handler:
+
+```dart
+unawaited(client.ensureIceServers()); // fire-and-forget, parallel to ringing
+await FlutterCallkitIncoming.showCallkitIncoming(callKitParams);
+```
+
 ## Device ID
 
 The SDK generates or retrieves a unique device ID for push token registration:
