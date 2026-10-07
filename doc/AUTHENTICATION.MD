@@ -130,5 +130,5 @@ client.onError.listen((error) {
 
 ## Next Steps
 
-- [Outbound Calls](outbound-calls.md)
-- [Incoming Calls](incoming-calls.md)
+- [Outbound Calls](OUTBOUND_CALLS.MD)
+- [Incoming Calls](INCOMING_CALLS.MD)
