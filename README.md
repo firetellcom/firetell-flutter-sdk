@@ -19,12 +19,12 @@ A Flutter SDK for building VoIP-enabled mobile applications with the [Firetell](
 
 ### Requirements
 
-| Component | Minimum |
-| --- | --- |
-| Flutter | `3.38.1` |
-| Dart | `3.10.0` |
-| iOS | `15.0` |
-| Android | API 24 with `compileSdk` 36 and `targetSdk` 36 |
+| Component | Minimum                                        |
+| --------- | ---------------------------------------------- |
+| Flutter   | `3.38.1`                                       |
+| Dart      | `3.10.0`                                       |
+| iOS       | `15.0`                                         |
+| Android   | API 24 with `compileSdk` 36 and `targetSdk` 36 |
 
 > [!WARNING]
 > **VERSION REQUIREMENTS:** Do not rely on the lower Flutter, Dart or iOS values
@@ -37,7 +37,7 @@ Add to your `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  firetell_flutter_sdk: ^1.1.2
+  firetell_flutter_sdk: ^1.2.0
 ```
 
 See [INSTALLATION.MD](doc/INSTALLATION.MD) for complete Android/iOS setup,
@@ -176,7 +176,6 @@ await call.transfer('+1987654321', reason: 'Customer request');
 // Hang up
 await call.hangup();
 ```
-
 
 ## Call Center SMS Conversations
 
