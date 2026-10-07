@@ -177,5 +177,5 @@ This sends a `call.hangup` event via WebSocket and cleans up WebRTC resources.
 
 ## Next Steps
 
-- [VoIP Push Notifications](voip-push.md)
-- [Architecture](architecture.md)
+- [VoIP Push Notifications](VOIP_PUSH.MD)
+- [Architecture](ARCHITECTURE.MD)

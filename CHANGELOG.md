@@ -5,6 +5,65 @@ All notable changes to the `firetell_flutter_sdk` package will be documented in 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - 2026-10-07
+
+### Added
+
+- **TURN credential refresh** (parity with Firetell Client SDK v1.4.0):
+  - Workspace metadata (`GET /api/v1`) now reads `ice_servers_ttl`. The SDK stores
+    the ICE servers and computes a local expiry `now + ice_servers_ttl` using the
+    device clock (`ice_servers_expires_at` is intentionally ignored to avoid clock
+    skew). `ttl == null` (no TURN configured) → servers never expire / never refresh.
+  - `FiretellClient.iceServersExpiresAt` — local expiry of the current TURN credentials.
+  - `FiretellClient.ensureIceServers({Duration minValidity = 6h})` — returns ICE
+    servers guaranteed valid for at least `minValidity`, refreshing when needed.
+    If workspace metadata is still loading, it waits for it (max 3s) instead of
+    falling back to STUN. Never throws.
+  - `FiretellClient.refreshIceServers()` — fetches `GET /api/v1/ice-servers`
+    (Bearer JWT, 3s timeout). Concurrent calls share one in-flight request. Never
+    throws; returns `false` on failure and keeps the cached servers (STUN keeps working).
+  - `Call(iceServersProvider: ...)` / `IceServersProvider` typedef — optional async
+    source awaited right before `RTCPeerConnection` is created.
+  - `IceServerCache.expiresAt()`.
+- **Signaling keep-alive & automatic reconnect** (parity with Firetell Client SDK v1.3.0):
+  - Per-call WebSocket sends `session.ping` every 25s (server replies `session.pong`);
+    no inbound message for 60s ⇒ connection treated as dead (half-open detection,
+    stays well below Cloudflare's 100s idle timeout).
+  - On an unexpected drop (any close code except 1000/1005, call not ended) the SDK
+    resumes the same call: `session.connect {call_token, call_id, reconnect: true}`
+    with exponential backoff 0.5s → 4s inside a 14s window (shorter than the server's
+    15s disconnect grace). Each attempt (incl. TCP/TLS handshake) must authenticate
+    within 3s. If the `call_token` has expired, the agent JWT is used instead.
+  - Events sent while reconnecting (e.g. mute, DTMF, hold) are queued (max 50) and
+    flushed after `session.connected`. `session.error` during a reconnect attempt is
+    retried silently instead of surfacing a call error.
+  - If the window elapses: `onSignaling` emits `failed`, the call ends with reason
+    `Signaling connection lost`.
+  - New API: `Call.onSignaling` stream (`SignalingStatus.reconnecting` /
+    `reconnected` / `failed`, with attempt number and close code),
+    `Call.isReconnecting`, `Call(fallbackTokenProvider: ...)`,
+    `JwtDecoder.isExpired()`.
+
+### Changed
+
+- `makeOutboundCall()`, `createCallSession()` and `handlePushIncomingCall()` create
+  calls with `iceServersProvider: ensureIceServers`, so `prepareOffer()` / `accept()`
+  always `await ensureIceServers()` before creating the peer connection.
+- Incoming calls prefetch TURN credentials (fire-and-forget, parallel to ringing):
+  on SSE `call.ring`, in `handlePushIncomingCall()`, and in
+  `CallKitHandler.showIncomingCall()` (VoIP push → CallKit / ConnectionService).
+- `IceServerCache.save(servers, {DateTime? expiresAt})` now persists the TTL-based
+  expiry; `IceServerCache.load()` drops expired TURN entries (keeps STUN, or falls
+  back to defaults) so cold-start push calls never use dead credentials.
+  Refreshed servers are re-cached automatically.
+- `Call.iceServers` is no longer `final` (updated with the provider result).
+- A dropped signaling WebSocket no longer ends the call immediately; it is resumed
+  as described above (previously any `onDone` destroyed an active call).
+- `Call.destroy()` closes the WebSocket with code `1000` so the server cleans up
+  immediately instead of waiting for the reconnect grace period.
+- `Call.sendWsEvent()` only sends after `session.connected` (events are queued while
+  reconnecting, dropped otherwise).
+
 ## [1.1.2] - 2026-10-01
 
 ### Added
@@ -46,7 +105,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   that maps server call IDs to RFC 4122 v4 UUIDs at the point of `showIncomingCall()`. The UUID
   is passed to `CallKitParams.id` for CallKit, while all internal operations (WebSocket signaling,
   HTTP reject, `activeCalls` map) continue to use the original server call ID.
-
   - UUID is generated using `dart:math` (`Random.secure()`) — no new dependencies added.
   - `dismissIncomingCall(serverCallId)` now resolves the correct UUID before calling `endCall()`.
   - Mapper entries are cleaned up on accept, decline, end, and timeout to prevent memory leaks.
